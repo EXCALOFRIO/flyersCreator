@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Type } from '@google/genai';
+// No importar SDK en cliente: usar schema JSON directamente
 import type { Logo, DayBoxData, Palette, Slogan, GenerationStatus } from '../types';
 import { SloganStyle } from '../types';
 import FlyerCanvas from './FlyerCanvas';
@@ -74,16 +74,16 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
-            type: Type.OBJECT,
+            type: 'object',
             properties: {
               palettes: {
-                type: Type.ARRAY,
+                type: 'array',
                 description: 'An array of 3 color palettes.',
                 items: {
-                  type: Type.OBJECT,
+                  type: 'object',
                   properties: {
-                    primary: { type: Type.STRING, description: 'High-contrast primary color for text.' },
-                    accent: { type: Type.STRING, description: 'Vibrant accent color for effects.' },
+                    primary: { type: 'string', description: 'High-contrast primary color for text.' },
+                    accent: { type: 'string', description: 'Vibrant accent color for effects.' },
                   },
                   required: ['primary', 'accent'],
                 }

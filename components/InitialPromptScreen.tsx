@@ -1,6 +1,5 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Type } from "@google/genai";
 import { PaperclipIcon } from './icons/PaperclipIcon';
 import type { DayBoxData } from '../types';
 
@@ -88,11 +87,11 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
                 systemInstruction: "Eres un asistente experto en diseño de flyers para discotecas. Tu tarea es analizar la petición del usuario (que puede incluir texto y una imagen de referencia) y determinar qué logos de discotecas deben aparecer para los días JUEVES, VIERNES y SÁBADO. Debes usar ÚNICAMENTE los nombres de archivo de la lista proporcionada. Tu respuesta DEBE ser un objeto JSON con tres claves: 'jueves', 'viernes', y 'sabado'. El valor de cada clave debe ser un array de strings, donde cada string es un nombre de archivo de logo exacto de la lista de logos disponibles.",
                 responseMimeType: "application/json",
                 responseSchema: {
-                    type: Type.OBJECT,
+                    type: 'object',
                     properties: {
-                        jueves: { type: Type.ARRAY, description: 'Logos para el Jueves.', items: { type: Type.STRING }},
-                        viernes: { type: Type.ARRAY, description: 'Logos para el Viernes.', items: { type: Type.STRING }},
-                        sabado: { type: Type.ARRAY, description: 'Logos para el Sábado.', items: { type: Type.STRING }},
+                        jueves: { type: 'array', description: 'Logos para el Jueves.', items: { type: 'string' }},
+                        viernes: { type: 'array', description: 'Logos para el Viernes.', items: { type: 'string' }},
+                        sabado: { type: 'array', description: 'Logos para el Sábado.', items: { type: 'string' }},
                     },
                     required: ['jueves', 'viernes', 'sabado']
                 },
