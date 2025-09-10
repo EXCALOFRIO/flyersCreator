@@ -15,6 +15,7 @@ const App: React.FC = () => {
       setIsLoadingLogos(true);
       setError(null);
       try {
+        // Cargar desde public/ usando fetch - funciona perfectamente en Vercel serverless
         const manifestResponse = await fetch('/logos.json');
         if (!manifestResponse.ok) {
           throw new Error('No se pudo encontrar el archivo `logos.json`. Este archivo es necesario para saber qué logos cargar.');
@@ -68,9 +69,7 @@ const App: React.FC = () => {
     };
 
     loadLogos();
-  }, []);
-
-  const handleFlyerConfigured = (dayBoxes: DayBoxData[]) => {
+  }, []);  const handleFlyerConfigured = (dayBoxes: DayBoxData[]) => {
     setConfiguredDayBoxes(dayBoxes);
   };
 
