@@ -1,8 +1,8 @@
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const crypto = require('crypto');
-const { GoogleGenAI, createUserContent, createPartFromUri } = require('@google/genai');
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import crypto from 'crypto';
+import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai';
 
 // Límites conservadores para Vercel
 const PAYLOAD_LIMIT = 4 * 1024 * 1024; // 4MB total payload limit
@@ -36,7 +36,7 @@ function mimeToExt(mime) {
   return '';
 }
 
-module.exports = async function (req, res) {
+export default async function (req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' });
     return;

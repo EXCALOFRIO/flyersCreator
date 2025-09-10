@@ -1,12 +1,13 @@
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const crypto = require('crypto');
-const { GoogleGenAI, createUserContent, createPartFromUri } = require('@google/genai');
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import crypto from 'crypto';
+import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai';
 
 // Limits
-const INLINE_TOTAL_LIMIT = 20 * 1024 * 1024; // 20 MB total request size for inline data (text+images)
-const INLINE_FILE_THRESHOLD = 15 * 1024 * 1024; // heuristic: files larger than this should be uploaded (raw bytes)
+// Practical limits for serverless body + safety margin
+const INLINE_TOTAL_LIMIT = 4 * 1024 * 1024; // ~4 MB inline data (Vercel body limit is strict)
+const INLINE_FILE_THRESHOLD = 1.5 * 1024 * 1024; // inline per image threshold ~1.5MB
 
 function stripDataPrefix(b64) {
   if (!b64) return b64;
@@ -36,7 +37,7 @@ function mimeToExt(mime) {
   return '';
 }
 
-module.exports = async function (req, res) {
+export default async function (req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' });
     return;
@@ -57,22 +58,64 @@ module.exports = async function (req, res) {
     // 2) Provide { model, prompt, images: [...] } where images is an array of { filePath, url, base64, mimeType }
 
     // If caller provided explicit contents, try to forward but guard large inline data
-    if (Array.isArray(body.contents) && body.contents.length > 0 && !body.images) {
+    // Normalize contents: allow array or single object with parts
+    const normalizeContentsToPartsArray = (contents) => {
+      if (!contents) return [];
+      // SDK accepts either array of Content or a single Content with parts
+      if (Array.isArray(contents)) return contents;
+      if (contents && typeof contents === 'object' && Array.isArray(contents.parts)) {
+        return [contents];
+      }
+      return [];
+    };
+
+    if ((Array.isArray(body.contents) || (body.contents && body.contents.parts)) && !body.images) {
       // Quick heuristic: if any part looks like inlineData, ensure we don't exceed limit
+      const normalized = normalizeContentsToPartsArray(body.contents);
       let inlineBytes = 0;
-      for (const part of body.contents) {
-        if (part && part.inlineData && part.inlineData.data) {
-          const b64 = stripDataPrefix(part.inlineData.data);
-          inlineBytes += Buffer.from(b64, 'base64').length;
-        } else if (typeof part === 'string') {
-          inlineBytes += Buffer.byteLength(part, 'utf8');
+      const processed = [];
+      const toCleanup = [];
+
+      for (const content of normalized) {
+        if (!Array.isArray(content.parts)) { processed.push(content); continue; }
+        const newParts = [];
+        for (const part of content.parts) {
+          if (part && part.inlineData && part.inlineData.data) {
+            const b64 = stripDataPrefix(part.inlineData.data);
+            const bytes = Buffer.from(b64, 'base64').length;
+            if (bytes > INLINE_FILE_THRESHOLD || inlineBytes + bytes > INLINE_TOTAL_LIMIT) {
+              const ext = mimeToExt(part.inlineData.mimeType || '');
+              const tmpPath = await writeBase64ToTempFile(b64, ext);
+              toCleanup.push(tmpPath);
+              const uploaded = await ai.files.upload({ file: tmpPath, config: { mimeType: part.inlineData.mimeType || 'application/octet-stream' } });
+              newParts.push(createPartFromUri(uploaded.uri, uploaded.mimeType));
+            } else {
+              inlineBytes += bytes;
+              newParts.push({ inlineData: { mimeType: part.inlineData.mimeType, data: b64 } });
+            }
+          } else if (typeof part === 'string') {
+            inlineBytes += Buffer.byteLength(part, 'utf8');
+            newParts.push(part);
+          } else {
+            newParts.push(part);
+          }
         }
+        processed.push({ parts: newParts });
       }
       if (inlineBytes > INLINE_TOTAL_LIMIT) {
-        res.status(413).json({ error: 'Payload too large for inline images. Use Files API or reduce image sizes.' });
+        // Should be prevented above, but double guard
+        res.status(413).json({ error: 'Payload too large after processing. Reduce prompt or image size.' });
+        // cleanup
+        for (const f of toCleanup) { try { await fs.promises.unlink(f); } catch {} }
         return;
       }
-      const result = await ai.models.generateContent(body);
+      const request = { model: body.model || 'gemini-2.5-flash', contents: processed, config: body.config };
+      let result;
+      try {
+        result = await ai.models.generateContent(request);
+      } finally {
+        for (const f of toCleanup) { try { await fs.promises.unlink(f); } catch {} }
+      }
       res.status(200).json({ text: result.text, raw: result });
       return;
     }
@@ -168,7 +211,7 @@ module.exports = async function (req, res) {
       return;
     }
 
-    const finalContents = createUserContent ? createUserContent(parts) : parts;
+  const finalContents = createUserContent ? createUserContent(parts) : parts;
 
     const request = { model, contents: finalContents };
     if (body.config) request.config = body.config;
@@ -178,6 +221,10 @@ module.exports = async function (req, res) {
   } catch (err) {
     console.error('Error calling Gemini on server:', err);
     // If error contains size info, forward it; otherwise generic
-    res.status(500).json({ error: 'Error calling Gemini', detail: String(err) });
+    if (String(err).includes('413') || String(err).toLowerCase().includes('payload') || String(err).toLowerCase().includes('too large')) {
+      res.status(413).json({ error: 'Payload too large. Image must be compressed or uploaded via Files API.', detail: String(err) });
+    } else {
+      res.status(500).json({ error: 'Error calling Gemini', detail: String(err) });
+    }
   }
 };

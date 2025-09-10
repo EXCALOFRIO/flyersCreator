@@ -8,17 +8,61 @@ interface InitialPromptScreenProps {
   onSuccess: (dayBoxes: DayBoxData[]) => void;
 }
 
-const readFileToDataUrl = (file: File): Promise<{ dataUrl: string, mimeType: string, name: string }> => 
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve({
-        dataUrl: reader.result as string,
-        mimeType: file.type,
-        name: file.name
+// Compress and downscale an image to stay well below Vercel's 4-5MB body limit.
+// Returns a JPEG data URL (quality ~0.75) with max dimension capped.
+const compressImageFile = (
+    file: File,
+    { maxDimension = 1280, quality = 0.75 }: { maxDimension?: number; quality?: number } = {}
+): Promise<{ dataUrl: string; mimeType: string; name: string; approxBytes: number }> =>
+    new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = reject;
+        reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let { width, height } = img;
+                // Scale preserving aspect ratio
+                if (width > height && width > maxDimension) {
+                    height = Math.round((height * maxDimension) / width);
+                    width = maxDimension;
+                } else if (height >= width && height > maxDimension) {
+                    width = Math.round((width * maxDimension) / height);
+                    height = maxDimension;
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    reject(new Error('No 2D context'));
+                    return;
+                }
+                ctx.drawImage(img, 0, 0, width, height);
+                // Force JPEG to significantly reduce size; transparency will be flattened
+                const mimeType = 'image/jpeg';
+                canvas.toBlob(
+                    (blob) => {
+                        if (!blob) {
+                            reject(new Error('Failed to create blob'));
+                            return;
+                        }
+                        const r2 = new FileReader();
+                        r2.onerror = reject;
+                        r2.onloadend = () => {
+                            const dataUrl = r2.result as string;
+                            resolve({ dataUrl, mimeType, name: file.name, approxBytes: blob.size });
+                        };
+                        r2.readAsDataURL(blob);
+                    },
+                    mimeType,
+                    quality
+                );
+            };
+            img.onerror = reject;
+            img.src = reader.result as string;
+        };
+        reader.readAsDataURL(file);
     });
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-});
 
 const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames, onSuccess }) => {
   const [textValue, setTextValue] = useState('');
@@ -28,14 +72,32 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   
-  const enqueueFiles = useCallback(async (fileList: FileList | File[]) => {
+    const enqueueFiles = useCallback(async (fileList: FileList | File[]) => {
     const imageFiles = Array.from(fileList).filter(f => f.type.startsWith('image/'));
     if (!imageFiles.length) return;
     
     // For simplicity, we'll just handle one image for the prompt.
     const fileToProcess = imageFiles[0];
-    const fileData = await readFileToDataUrl(fileToProcess);
-    setFiles([fileData]);
+        try {
+            const compressed = await compressImageFile(fileToProcess, { maxDimension: 1280, quality: 0.75 });
+            // If still too big (>3.5MB), try a second pass lighter
+            if (compressed.approxBytes > 3.5 * 1024 * 1024) {
+                const lighter = await compressImageFile(fileToProcess, { maxDimension: 1024, quality: 0.65 });
+                setFiles([{ dataUrl: lighter.dataUrl, mimeType: lighter.mimeType, name: fileToProcess.name }]);
+            } else {
+                setFiles([{ dataUrl: compressed.dataUrl, mimeType: compressed.mimeType, name: fileToProcess.name }]);
+            }
+        } catch (e) {
+            console.error('Error compressing image:', e);
+            // Fallback: store original as data URL (may hit server limit)
+            const fallback = await new Promise<{ dataUrl: string; mimeType: string; name: string }>((resolve, reject) => {
+                const r = new FileReader();
+                r.onloadend = () => resolve({ dataUrl: r.result as string, mimeType: fileToProcess.type || 'image/png', name: fileToProcess.name });
+                r.onerror = reject;
+                r.readAsDataURL(fileToProcess);
+            });
+            setFiles([fallback]);
+        }
   }, []);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
