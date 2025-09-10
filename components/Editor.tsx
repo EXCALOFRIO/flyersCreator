@@ -85,38 +85,27 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
 
   const generatePalette = async (imageUrl: string, mimeType: string): Promise<Palette[]> => {
     try {
-      // Comprimir imagen si viene como data URL
-      let processedBase64 = imageUrl;
-      if (imageUrl.startsWith('data:')) {
-        // Si es data URL, extraer y posiblemente recomprimir
-        const base64Part = imageUrl.split(',')[1];
-        const sizeKB = (base64Part.length * 3) / 4 / 1024; // tamaño aproximado en KB
-        
-        if (sizeKB > 500) { // Si > 500KB, recomprimir
-          const img = new Image();
-          img.onload = () => {
-            const canvas = resizeImage(img, 600, 400);
-            processedBase64 = compressImage(canvas, 0.5);
-          };
-          img.src = imageUrl;
-          await new Promise(resolve => {
-            img.onload = () => {
-              const canvas = resizeImage(img, 600, 400);
-              processedBase64 = compressImage(canvas, 0.5);
-              resolve(void 0);
-            };
-          });
-        }
-      }
-
-      const rawBase64 = processedBase64 && processedBase64.includes(',') ? processedBase64.split(',')[1] : processedBase64;
+      // Extraer base64 limpio
+      const rawBase64 = imageUrl && imageUrl.includes(',') ? imageUrl.split(',')[1] : imageUrl;
 
       const promptText = `Analiza esta imagen y sugiere 3 paletas de colores distintas y visualmente armoniosas. Cada paleta es para elementos de UI sobre la imagen. Para cada paleta, proporciona un color 'primary' y un color 'accent' vibrante. Crucialmente, el color 'primary' DEBE ser un color claro, tipo pastel (por ejemplo, amarillo claro, cian pálido o un lavanda suave), pero por favor evita usar blanco puro (#FFFFFF) para las tres paletas para asegurar variedad. Debe tener un ratio de contraste muy alto contra la imagen general para asegurar que los elementos de texto como los nombres de los días sean fácilmente legibles y accesibles. El color 'accent' debe ser vibrante y complementario para efectos especiales. Devuelve un único objeto JSON con una clave 'palettes' que es un array de estos 3 objetos de paleta. Cada objeto debe tener las claves: 'primary' y 'accent', con valores de código de color hexadecimal en formato string.`;
 
+      // Usar formato de proxy como en TestResolver
       const payload = {
-        image: { base64: rawBase64, mimeType: 'image/jpeg' },
-        prompt: promptText,
         model: 'gemini-2.5-flash',
+        contents: [
+          {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: mimeType || 'image/jpeg',
+                  data: rawBase64
+                }
+              },
+              { text: promptText }
+            ]
+          }
+        ],
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
@@ -140,13 +129,17 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
         }
       };
 
-      const serverResp = await fetch('/api/palette', {
+      const serverResp = await fetch('/api/proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      if (!serverResp.ok) throw new Error('Error en el servidor al generar paletas con Gemini');
+      if (!serverResp.ok) {
+        const errorData = await serverResp.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Error en el servidor al generar paletas');
+      }
+      
       const serverJson = await serverResp.json();
       const responseText = serverJson.text;
       const { palettes: newPalettes } = JSON.parse(responseText);
@@ -235,36 +228,22 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
         }
 
         try {
-            // Comprimir imagen antes de procesarla
-            const img = new Image();
-            img.onload = async () => {
-                try {
-                    const canvas = resizeImage(img, 800, 600);
-                    const compressedImageUrl = compressImage(canvas, 0.6);
-                    
-                    const newPalettes = await generatePalette(compressedImageUrl, 'image/jpeg');
+            const newPalettes = await generatePalette(imageUrl, file.type);
 
-                    if (newPalettes.length > 0) {
-                        setBackground({ ...background, image: compressedImageUrl });
-                        setPalettes(newPalettes);
-                        setSelectedPaletteIndex(0);
-                    } else {
-                        setBackground({ ...background, image: compressedImageUrl });
-                        setPalettes([{ primary: '#FFFFFF', accent: '#EC4899' }]);
-                        setSelectedPaletteIndex(0);
-                        throw new Error("Palette generation returned no palettes, but background was set with default colors.");
-                    }
-                } catch (error) {
-                    console.error("Error during custom background processing:", error);
-                    alert("Se estableció el fondo, pero no se pudieron crear paletas de colores a juego. Usando colores por defecto.");
-                } finally {
-                    setGenerationStatus('idle');
-                }
-            };
-            img.src = imageUrl;
+            if (newPalettes.length > 0) {
+                setBackground({ ...background, image: imageUrl });
+                setPalettes(newPalettes);
+                setSelectedPaletteIndex(0);
+            } else {
+                setBackground({ ...background, image: imageUrl });
+                setPalettes([{ primary: '#FFFFFF', accent: '#EC4899' }]);
+                setSelectedPaletteIndex(0);
+                throw new Error("Palette generation returned no palettes, but background was set with default colors.");
+            }
         } catch (error) {
-            console.error("Error processing image:", error);
-            alert("Error al procesar la imagen. Por favor, inténtalo de nuevo.");
+            console.error("Error during custom background processing:", error);
+            alert("Se estableció el fondo, pero no se pudieron crear paletas de colores a juego. Usando colores por defecto.");
+        } finally {
             setGenerationStatus('idle');
         }
     };
