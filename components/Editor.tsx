@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
 import type { Logo, DayBoxData, Palette, Slogan, GenerationStatus } from '../types';
 import { SloganStyle } from '../types';
 import FlyerCanvas from './FlyerCanvas';
@@ -58,7 +58,6 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
 
   const generatePalette = async (imageUrl: string, mimeType: string): Promise<Palette[]> => {
     try {
-      const ai = new GoogleGenAI({ apiKey: (import.meta as any).env.VITE_GEMINI_API_KEY });
       const imagePart = {
         inlineData: {
           mimeType: mimeType,
@@ -69,40 +68,48 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
         text: `Analiza esta imagen y sugiere 3 paletas de colores distintas y visualmente armoniosas. Cada paleta es para elementos de UI sobre la imagen. Para cada paleta, proporciona un color 'primary' y un color 'accent' vibrante. Crucialmente, el color 'primary' DEBE ser un color claro, tipo pastel (por ejemplo, amarillo claro, cian pálido o un lavanda suave), pero por favor evita usar blanco puro (#FFFFFF) para las tres paletas para asegurar variedad. Debe tener un ratio de contraste muy alto contra la imagen general para asegurar que los elementos de texto como los nombres de los días sean fácilmente legibles y accesibles. El color 'accent' debe ser vibrante y complementario para efectos especiales. Devuelve un único objeto JSON con una clave 'palettes' que es un array de estos 3 objetos de paleta. Cada objeto debe tener las claves: 'primary' y 'accent', con valores de código de color hexadecimal en formato string.`
       };
 
-      const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: { parts: [imagePart, textPart] },
-          config: {
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  palettes: {
-                    type: Type.ARRAY,
-                    description: "An array of 3 color palettes.",
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        primary: { type: Type.STRING, description: "High-contrast primary color for text." },
-                        accent: { type: Type.STRING, description: "Vibrant accent color for effects." },
-                      },
-                      required: ["primary", "accent"],
-                    }
-                  }
-                },
-                required: ["palettes"],
-              },
-          },
+      const payload = {
+        model: 'gemini-2.5-flash',
+        contents: { parts: [imagePart, textPart] },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              palettes: {
+                type: Type.ARRAY,
+                description: 'An array of 3 color palettes.',
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    primary: { type: Type.STRING, description: 'High-contrast primary color for text.' },
+                    accent: { type: Type.STRING, description: 'Vibrant accent color for effects.' },
+                  },
+                  required: ['primary', 'accent'],
+                }
+              }
+            },
+            required: ['palettes'],
+          }
+        }
+      };
+
+      const serverResp = await fetch('/api/genai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
-      
-      const responseText = response.text;
+
+      if (!serverResp.ok) throw new Error('Error en el servidor al generar paletas con Gemini');
+      const serverJson = await serverResp.json();
+      const responseText = serverJson.text;
       const { palettes: newPalettes } = JSON.parse(responseText);
       return newPalettes;
 
     } catch (error) {
-      console.error("Error generating palette with Gemini:", error);
-      alert("No se pudieron generar las paletas de colores. Por favor, revisa la imagen o inténtalo de nuevo.");
-      return []; 
+      console.error('Error generating palette with Gemini:', error);
+      alert('No se pudieron generar las paletas de colores. Por favor, revisa la imagen o inténtalo de nuevo.');
+      return [];
     }
   };
 
@@ -123,15 +130,19 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
             query = THEME_QUERIES[theme as keyof typeof THEME_QUERIES];
         }
 
-        const unsplashUrl = `https://api.unsplash.com/photos/random?client_id=${(import.meta as any).env.VITE_UNSPLASH_API_KEY}&query=${encodeURIComponent(query)}&orientation=portrait`;
+        const unsplashResponse = await fetch('/api/unsplash', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, orientation: 'portrait' }),
+        });
 
-        const response = await fetch(unsplashUrl);
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(`Error fetching from Unsplash: ${response.statusText} - ${errorData.errors.join(', ')}`);
+        if (!unsplashResponse.ok) {
+            const errorData = await unsplashResponse.json();
+            throw new Error(`Error fetching from Unsplash: ${unsplashResponse.statusText} - ${errorData.error || 'Unknown error'}`);
         }
-        const data = await response.json();
-        const imageUrl = data.urls.regular;
+
+        const unsplashData = await unsplashResponse.json();
+        const imageUrl = unsplashData.imageUrl;
         
         const { base64: base64Image, mimeType } = await imageUrlToBase64(imageUrl);
         newImageGenerated = true;

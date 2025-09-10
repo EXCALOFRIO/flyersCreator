@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import { PaperclipIcon } from './icons/PaperclipIcon';
 import type { DayBoxData } from '../types';
 
@@ -66,8 +66,6 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
     setError(null);
 
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        
         const promptParts: any[] = [
             { text: `Petición del usuario: "${textValue}"` },
             { text: `Nombres de archivo de los logos disponibles: ${JSON.stringify(allLogoNames)}` },
@@ -82,8 +80,8 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
                 },
             });
         }
-        
-        const response = await ai.models.generateContent({
+
+        const payload = {
             model: "gemini-2.5-flash",
             contents: { parts: promptParts },
             config: {
@@ -99,9 +97,18 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
                     required: ['jueves', 'viernes', 'sabado']
                 },
             },
+        };
+
+        const serverResp = await fetch('/api/genai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
         });
 
-        const responseText = response.text;
+        if (!serverResp.ok) throw new Error('Error en el servidor al generar la respuesta AI');
+
+        const serverJson = await serverResp.json();
+        const responseText = serverJson.text;
         const parsedResponse = JSON.parse(responseText);
 
         const dayBoxes: DayBoxData[] = [

@@ -23,6 +23,17 @@ VITE_GEMINI_API_KEY=tu_clave_gemini_aqui
 - `VITE_UNSPLASH_API_KEY`: clave para usar la API de Unsplash (búsqueda de imágenes). Vite expone sólo variables que empiecen por `VITE_` al cliente.
 - `VITE_GEMINI_API_KEY`: clave para el servicio de generación de paletas (Gemini). Ajusta según tu proveedor.
 
+**Para Vercel/Netlify y otros proveedores serverless:**
+
+Las llamadas a APIs externas (Unsplash, Gemini) se hacen desde endpoints serverless (`/api/unsplash`, `/api/genai`) para evitar problemas CORS y de exposición de claves. En el dashboard de tu proveedor, configura estas variables:
+
+```
+UNSPLASH_API_KEY=tu_clave_unsplash_aqui
+GEMINI_API_KEY=tu_clave_gemini_aqui
+```
+
+(Sin el prefijo `VITE_` ya que son para el servidor, no el cliente)
+
 > Nota: no subas tus archivos `.env` a repositorios públicos. Añadelos a `.gitignore` si procede.
 
 ## Instalación y ejecución (Windows / PowerShell)
