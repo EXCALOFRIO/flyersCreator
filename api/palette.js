@@ -4,8 +4,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { GoogleGenAI, createUserContent, createPartFromUri } = require('@google/genai');
 
-const INLINE_TOTAL_LIMIT = 20 * 1024 * 1024; // 20MB limit for inline
-const INLINE_FILE_THRESHOLD = 15 * 1024 * 1024; // heuristic to decide upload
+const INLINE_TOTAL_LIMIT = 4 * 1024 * 1024; // 4MB limit for Vercel serverless
+const INLINE_FILE_THRESHOLD = 2 * 1024 * 1024; // 2MB threshold to force upload
 
 function stripDataPrefix(b64) {
   if (!b64) return b64;
@@ -67,6 +67,12 @@ module.exports = async function (req, res) {
       const rawB64 = stripDataPrefix(image.base64);
       const bytes = Buffer.from(rawB64, 'base64').length;
       const textBytes = Buffer.byteLength(promptText, 'utf8');
+
+      // Validar tamaño total antes de procesar
+      if (bytes + textBytes > 5 * 1024 * 1024) { // 5MB total limit
+        res.status(413).json({ error: 'Image too large. Please compress or resize the image.' });
+        return;
+      }
 
       if (bytes + textBytes <= INLINE_TOTAL_LIMIT && bytes <= INLINE_FILE_THRESHOLD) {
         parts.push({ inlineData: { mimeType: mime, data: rawB64 } });

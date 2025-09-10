@@ -18,17 +18,44 @@ const THEME_QUERIES = {
   vintage: 'retro, 1980s, vintage car, film grain',
 };
 
+// Función para comprimir imagen antes de enviarla al servidor
+const compressImage = (canvas: HTMLCanvasElement, quality: number = 0.7): string => {
+  return canvas.toDataURL('image/jpeg', quality);
+};
+
+const resizeImage = (img: HTMLImageElement, maxWidth: number = 800, maxHeight: number = 600): HTMLCanvasElement => {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d')!;
+  
+  // Calcular nuevas dimensiones manteniendo aspecto
+  let { width, height } = img;
+  if (width > maxWidth || height > maxHeight) {
+    const ratio = Math.min(maxWidth / width, maxHeight / height);
+    width *= ratio;
+    height *= ratio;
+  }
+  
+  canvas.width = width;
+  canvas.height = height;
+  ctx.drawImage(img, 0, 0, width, height);
+  return canvas;
+};
+
 const imageUrlToBase64 = async (url: string): Promise<{ base64: string, mimeType: string }> => {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    const mimeType = blob.type;
     return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            resolve({ base64: reader.result as string, mimeType });
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            try {
+                const canvas = resizeImage(img, 800, 600);
+                const compressedBase64 = compressImage(canvas, 0.6);
+                resolve({ base64: compressedBase64, mimeType: 'image/jpeg' });
+            } catch (error) {
+                reject(error);
+            }
         };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
+        img.onerror = reject;
+        img.src = url;
     });
 };
 
@@ -58,17 +85,38 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
 
   const generatePalette = async (imageUrl: string, mimeType: string): Promise<Palette[]> => {
     try {
-      // imageUrl can be a data URL (data:<mime>;base64,AAA...) or raw base64.
-      const rawBase64 = imageUrl && imageUrl.includes(',') ? imageUrl.split(',')[1] : imageUrl;
+      // Comprimir imagen si viene como data URL
+      let processedBase64 = imageUrl;
+      if (imageUrl.startsWith('data:')) {
+        // Si es data URL, extraer y posiblemente recomprimir
+        const base64Part = imageUrl.split(',')[1];
+        const sizeKB = (base64Part.length * 3) / 4 / 1024; // tamaño aproximado en KB
+        
+        if (sizeKB > 500) { // Si > 500KB, recomprimir
+          const img = new Image();
+          img.onload = () => {
+            const canvas = resizeImage(img, 600, 400);
+            processedBase64 = compressImage(canvas, 0.5);
+          };
+          img.src = imageUrl;
+          await new Promise(resolve => {
+            img.onload = () => {
+              const canvas = resizeImage(img, 600, 400);
+              processedBase64 = compressImage(canvas, 0.5);
+              resolve(void 0);
+            };
+          });
+        }
+      }
+
+      const rawBase64 = processedBase64 && processedBase64.includes(',') ? processedBase64.split(',')[1] : processedBase64;
 
       const promptText = `Analiza esta imagen y sugiere 3 paletas de colores distintas y visualmente armoniosas. Cada paleta es para elementos de UI sobre la imagen. Para cada paleta, proporciona un color 'primary' y un color 'accent' vibrante. Crucialmente, el color 'primary' DEBE ser un color claro, tipo pastel (por ejemplo, amarillo claro, cian pálido o un lavanda suave), pero por favor evita usar blanco puro (#FFFFFF) para las tres paletas para asegurar variedad. Debe tener un ratio de contraste muy alto contra la imagen general para asegurar que los elementos de texto como los nombres de los días sean fácilmente legibles y accesibles. El color 'accent' debe ser vibrante y complementario para efectos especiales. Devuelve un único objeto JSON con una clave 'palettes' que es un array de estos 3 objetos de paleta. Cada objeto debe tener las claves: 'primary' y 'accent', con valores de código de color hexadecimal en formato string.`;
 
       const payload = {
-        model: 'gemini-2.5-flash',
+        image: { base64: rawBase64, mimeType: 'image/jpeg' },
         prompt: promptText,
-        images: [
-          { base64: rawBase64, mimeType: mimeType || 'image/png' }
-        ],
+        model: 'gemini-2.5-flash',
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
@@ -187,22 +235,36 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
         }
 
         try {
-            const newPalettes = await generatePalette(imageUrl, file.type);
+            // Comprimir imagen antes de procesarla
+            const img = new Image();
+            img.onload = async () => {
+                try {
+                    const canvas = resizeImage(img, 800, 600);
+                    const compressedImageUrl = compressImage(canvas, 0.6);
+                    
+                    const newPalettes = await generatePalette(compressedImageUrl, 'image/jpeg');
 
-            if (newPalettes.length > 0) {
-                setBackground({ ...background, image: imageUrl });
-                setPalettes(newPalettes);
-                setSelectedPaletteIndex(0);
-            } else {
-                setBackground({ ...background, image: imageUrl });
-                setPalettes([{ primary: '#FFFFFF', accent: '#EC4899' }]);
-                setSelectedPaletteIndex(0);
-                throw new Error("Palette generation returned no palettes, but background was set with default colors.");
-            }
+                    if (newPalettes.length > 0) {
+                        setBackground({ ...background, image: compressedImageUrl });
+                        setPalettes(newPalettes);
+                        setSelectedPaletteIndex(0);
+                    } else {
+                        setBackground({ ...background, image: compressedImageUrl });
+                        setPalettes([{ primary: '#FFFFFF', accent: '#EC4899' }]);
+                        setSelectedPaletteIndex(0);
+                        throw new Error("Palette generation returned no palettes, but background was set with default colors.");
+                    }
+                } catch (error) {
+                    console.error("Error during custom background processing:", error);
+                    alert("Se estableció el fondo, pero no se pudieron crear paletas de colores a juego. Usando colores por defecto.");
+                } finally {
+                    setGenerationStatus('idle');
+                }
+            };
+            img.src = imageUrl;
         } catch (error) {
-            console.error("Error during custom background processing:", error);
-            alert("Se estableció el fondo, pero no se pudieron crear paletas de colores a juego. Usando colores por defecto.");
-        } finally {
+            console.error("Error processing image:", error);
+            alert("Error al procesar la imagen. Por favor, inténtalo de nuevo.");
             setGenerationStatus('idle');
         }
     };
