@@ -58,19 +58,17 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
 
   const generatePalette = async (imageUrl: string, mimeType: string): Promise<Palette[]> => {
     try {
-      const imagePart = {
-        inlineData: {
-          mimeType: mimeType,
-          data: imageUrl.split(',')[1],
-        },
-      };
-      const textPart = {
-        text: `Analiza esta imagen y sugiere 3 paletas de colores distintas y visualmente armoniosas. Cada paleta es para elementos de UI sobre la imagen. Para cada paleta, proporciona un color 'primary' y un color 'accent' vibrante. Crucialmente, el color 'primary' DEBE ser un color claro, tipo pastel (por ejemplo, amarillo claro, cian pálido o un lavanda suave), pero por favor evita usar blanco puro (#FFFFFF) para las tres paletas para asegurar variedad. Debe tener un ratio de contraste muy alto contra la imagen general para asegurar que los elementos de texto como los nombres de los días sean fácilmente legibles y accesibles. El color 'accent' debe ser vibrante y complementario para efectos especiales. Devuelve un único objeto JSON con una clave 'palettes' que es un array de estos 3 objetos de paleta. Cada objeto debe tener las claves: 'primary' y 'accent', con valores de código de color hexadecimal en formato string.`
-      };
+      // imageUrl can be a data URL (data:<mime>;base64,AAA...) or raw base64.
+      const rawBase64 = imageUrl && imageUrl.includes(',') ? imageUrl.split(',')[1] : imageUrl;
+
+      const promptText = `Analiza esta imagen y sugiere 3 paletas de colores distintas y visualmente armoniosas. Cada paleta es para elementos de UI sobre la imagen. Para cada paleta, proporciona un color 'primary' y un color 'accent' vibrante. Crucialmente, el color 'primary' DEBE ser un color claro, tipo pastel (por ejemplo, amarillo claro, cian pálido o un lavanda suave), pero por favor evita usar blanco puro (#FFFFFF) para las tres paletas para asegurar variedad. Debe tener un ratio de contraste muy alto contra la imagen general para asegurar que los elementos de texto como los nombres de los días sean fácilmente legibles y accesibles. El color 'accent' debe ser vibrante y complementario para efectos especiales. Devuelve un único objeto JSON con una clave 'palettes' que es un array de estos 3 objetos de paleta. Cada objeto debe tener las claves: 'primary' y 'accent', con valores de código de color hexadecimal en formato string.`;
 
       const payload = {
         model: 'gemini-2.5-flash',
-        contents: { parts: [imagePart, textPart] },
+        prompt: promptText,
+        images: [
+          { base64: rawBase64, mimeType: mimeType || 'image/png' }
+        ],
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
@@ -94,7 +92,7 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
         }
       };
 
-      const serverResp = await fetch('/api/genai', {
+      const serverResp = await fetch('/api/palette', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
