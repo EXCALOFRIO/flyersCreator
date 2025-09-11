@@ -69,8 +69,19 @@ const App: React.FC = () => {
     };
 
     loadLogos();
-  }, []);  const handleFlyerConfigured = (dayBoxes: DayBoxData[]) => {
+  }, []);
+
+  const [importedEditorState, setImportedEditorState] = useState<any | null>(null);
+
+  const handleFlyerConfigured = (dayBoxes: DayBoxData[]) => {
     setConfiguredDayBoxes(dayBoxes);
+  };
+
+  const handleImportProject = (project: any) => {
+    if (project && project.editorState) {
+      setImportedEditorState(project.editorState);
+      setConfiguredDayBoxes(project.editorState.dayBoxes || null);
+    }
   };
 
   if (isLoadingLogos) {
@@ -98,9 +109,10 @@ const App: React.FC = () => {
         <InitialPromptScreen 
           allLogoNames={logos.map(l => l.name)}
           onSuccess={handleFlyerConfigured}
+          onImportProject={handleImportProject}
         />
       ) : (
-        <Editor logos={logos} initialDayBoxes={configuredDayBoxes} />
+        <Editor logos={logos} initialDayBoxes={configuredDayBoxes} initialState={importedEditorState} />
       )}
     </div>
   );

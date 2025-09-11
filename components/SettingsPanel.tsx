@@ -12,6 +12,7 @@ interface SettingsPanelProps {
   logoScale: number;
   onLogoScaleChange: (scale: number) => void;
   onExport: () => void;
+  onExportProject?: () => void;
   palettes: Palette[];
   selectedPaletteIndex: number;
   onSelectPalette: (index: number) => void;
@@ -62,6 +63,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   slogan, onSloganChange,
   logoScale, onLogoScaleChange,
   onExport,
+  onExportProject,
   palettes,
   selectedPaletteIndex, onSelectPalette,
   generationStatus, onGenerateBackground, onCustomBackgroundUpload
@@ -173,6 +175,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       
       <div className="flex flex-col gap-3 mt-6">
         <button onClick={onExport} className="w-full py-3 bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:opacity-90 rounded-xl font-bold transition-opacity shadow-lg shadow-violet-500/20">Exportar como PNG</button>
+        <button onClick={() => onExportProject && onExportProject()} className="w-full py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold transition-opacity border border-slate-700 text-sm">Exportar proyecto (.json)</button>
       </div>
     </aside>
   );

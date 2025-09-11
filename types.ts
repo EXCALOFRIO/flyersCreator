@@ -10,6 +10,15 @@ export interface DayBoxData {
   logoIds: string[];
 }
 
+export interface EditorState {
+  dayBoxes: DayBoxData[];
+  background: { image: string; blur: number; brightness: number };
+  slogan: Slogan;
+  palettes: Palette[];
+  selectedPaletteIndex: number;
+  logoScale: number;
+}
+
 export interface Slogan {
     text: string;
     style: SloganStyle;

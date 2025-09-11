@@ -4,8 +4,9 @@ import { PaperclipIcon } from './icons/PaperclipIcon';
 import type { DayBoxData } from '../types';
 
 interface InitialPromptScreenProps {
-  allLogoNames: string[];
-  onSuccess: (dayBoxes: DayBoxData[]) => void;
+    allLogoNames: string[];
+    onSuccess: (dayBoxes: DayBoxData[]) => void;
+    onImportProject?: (project: any) => void;
 }
 
 // Compress and downscale an image to stay well below Vercel's 4-5MB body limit.
@@ -64,13 +65,14 @@ const compressImageFile = (
         reader.readAsDataURL(file);
     });
 
-const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames, onSuccess }) => {
+const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames, onSuccess, onImportProject }) => {
   const [textValue, setTextValue] = useState('');
   const [files, setFiles] = useState<{ dataUrl: string, mimeType: string, name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const projectInputRef = useRef<HTMLInputElement | null>(null);
   
     const enqueueFiles = useCallback(async (fileList: FileList | File[]) => {
     const imageFiles = Array.from(fileList).filter(f => f.type.startsWith('image/'));
@@ -166,7 +168,17 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
             body: JSON.stringify(payload),
         });
 
-        if (!serverResp.ok) throw new Error('Error en el servidor al generar la respuesta AI');
+        if (!serverResp.ok) {
+            // Try to read JSON or text body to show useful error locally
+            let bodyText = '';
+            try {
+                const j = await serverResp.json();
+                bodyText = JSON.stringify(j);
+            } catch (e) {
+                try { bodyText = await serverResp.text(); } catch { bodyText = '<no body>'; }
+            }
+            throw new Error(`Error en el servidor al generar la respuesta AI: ${bodyText}`);
+        }
 
         const serverJson = await serverResp.json();
         const responseText = serverJson.text;
@@ -257,6 +269,23 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
         <div className="text-center mt-4 text-xs text-slate-500">
             <p>Puedes pegar una imagen desde tu portapapeles (Ctrl+V).</p>
         </div>
+            <div className="text-center mt-4">
+                  <input ref={projectInputRef} type="file" accept="application/json" className="hidden" onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file || !projectInputRef.current) return;
+                    try {
+                        const text = await file.text();
+                        const json = JSON.parse(text);
+                      if (typeof onImportProject === 'function') onImportProject(json);
+                    } catch (err) {
+                        console.error('Invalid project file', err);
+                        alert('Archivo de proyecto inválido');
+                    } finally {
+                        e.currentTarget.value = '';
+                    }
+                }} />
+                <button onClick={() => projectInputRef.current?.click()} className="mt-2 text-sm text-slate-400 underline">Importar proyecto (.json)</button>
+            </div>
     </div>
   );
 };

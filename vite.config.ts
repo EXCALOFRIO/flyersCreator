@@ -82,8 +82,15 @@ function localApiPlugin() {
 }
 
 export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
-    return {
+  const env = loadEnv(mode, '.', '');
+
+  // Expose .env variables to process.env in dev so API handlers can access them
+  // (Vite exposes them to import.meta.env for client, but server handlers need process.env)
+  process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY;
+  process.env.VITE_GEMINI_API_KEY = process.env.VITE_GEMINI_API_KEY || env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY;
+  process.env.UNSPLASH_API_KEY = process.env.UNSPLASH_API_KEY || env.UNSPLASH_API_KEY || env.VITE_UNSPLASH_API_KEY;
+
+  return {
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),

@@ -60,13 +60,13 @@ const imageUrlToBase64 = async (url: string): Promise<{ base64: string, mimeType
 };
 
 
-const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ logos, initialDayBoxes }) => {
-  const [dayBoxes, setDayBoxes] = useState<DayBoxData[]>(initialDayBoxes);
-  const [background, setBackground] = useState({ image: '', blur: 2, brightness: 50 });
-  const [slogan, setSlogan] = useState<Slogan>({ text: '¡ESTO Y MUCHO MÁS!', style: SloganStyle.Default, fontSize: 28, fontFamily: 'Unbounded' });
-  const [palettes, setPalettes] = useState<Palette[]>([{ primary: '#FBBF24', accent: '#EC4899' }]);
-  const [selectedPaletteIndex, setSelectedPaletteIndex] = useState(0);
-  const [logoScale, setLogoScale] = useState(1);
+const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[]; initialState?: any }> = ({ logos, initialDayBoxes, initialState }) => {
+  const [dayBoxes, setDayBoxes] = useState<DayBoxData[]>(initialState?.dayBoxes || initialDayBoxes);
+  const [background, setBackground] = useState(initialState?.background || { image: '', blur: 2, brightness: 50 });
+  const [slogan, setSlogan] = useState<Slogan>(initialState?.slogan || { text: '¡ESTO Y MUCHO MÁS!', style: SloganStyle.Default, fontSize: 28, fontFamily: 'Unbounded' });
+  const [palettes, setPalettes] = useState<Palette[]>(initialState?.palettes || [{ primary: '#FBBF24', accent: '#EC4899' }]);
+  const [selectedPaletteIndex, setSelectedPaletteIndex] = useState(initialState?.selectedPaletteIndex || 0);
+  const [logoScale, setLogoScale] = useState(initialState?.logoScale || 1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isThemeSelectorOpen, setIsThemeSelectorOpen] = useState(false);
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
@@ -76,12 +76,30 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
 
   const flyerRef = useRef<HTMLDivElement>(null);
 
+  // Auto-open theme selector for fresh flows, but delay and cancel if an imported initialState arrives
   useEffect(() => {
-      // If we are loaded with pre-configured boxes but no background, start the theme selection.
-      if (dayBoxes.length > 0 && !background.image) {
-          setIsThemeSelectorOpen(true);
+    const handle = setTimeout(() => {
+      if (!initialState && dayBoxes.length > 0 && !background.image) {
+        setIsThemeSelectorOpen(true);
       }
-  }, []); // Run only once on mount
+    }, 120);
+    return () => clearTimeout(handle);
+  }, [initialState, dayBoxes.length, background.image]);
+
+  // If an initialState is provided after mount (import flow), apply it to component state.
+  useEffect(() => {
+    if (!initialState) return;
+    try {
+      if (initialState.dayBoxes) setDayBoxes(initialState.dayBoxes);
+      if (initialState.background) setBackground(initialState.background);
+      if (initialState.slogan) setSlogan(initialState.slogan);
+      if (initialState.palettes) setPalettes(initialState.palettes);
+      if (typeof initialState.selectedPaletteIndex === 'number') setSelectedPaletteIndex(initialState.selectedPaletteIndex);
+      if (typeof initialState.logoScale === 'number') setLogoScale(initialState.logoScale);
+    } catch (err) {
+      console.warn('Failed to apply imported initialState cleanly:', err);
+    }
+  }, [initialState]);
 
   const generatePalette = async (imageUrl: string, mimeType: string): Promise<Palette[]> => {
     try {
@@ -266,7 +284,10 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
   };
   
   const handleExport = useCallback(async () => {
-    if (!flyerRef.current) return;
+  if (!flyerRef.current) return;
+  // clear any logo selection before export
+  window.dispatchEvent(new Event('clearLogoSelection'));
+  await new Promise((r) => setTimeout(r, 80));
     const el = flyerRef.current as HTMLElement;
 
     // Guardar estilos inline previos para restaurarlos después
@@ -298,6 +319,32 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
     }
   }, [flyerRef]);
 
+  const downloadProject = useCallback(() => {
+    // clear any logo selection before exporting project
+    window.dispatchEvent(new Event('clearLogoSelection'));
+    setTimeout(() => {
+      const project = {
+      editorState: {
+        dayBoxes,
+        background,
+        slogan,
+        palettes,
+        selectedPaletteIndex,
+        logoScale,
+      },
+      logoFilenames: logos.map(l => l.name),
+      exportedAt: new Date().toISOString(),
+      };
+      const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'flyer-project.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    }, 120);
+  }, [dayBoxes, background, slogan, palettes, selectedPaletteIndex, logoScale, logos]);
+
   const selectedDayLogos = dayBoxes.find(d => d.id === selectedDayId)?.logoIds || [];
   const activePalette = palettes[selectedPaletteIndex] || palettes[0];
 
@@ -327,6 +374,7 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[] }> = ({ lo
           logoScale={logoScale}
           onLogoScaleChange={setLogoScale}
           onExport={handleExport}
+          onExportProject={downloadProject}
           palettes={palettes}
           selectedPaletteIndex={selectedPaletteIndex}
           onSelectPalette={setSelectedPaletteIndex}
