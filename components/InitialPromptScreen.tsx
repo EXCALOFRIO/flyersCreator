@@ -270,20 +270,31 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
             <p>Puedes pegar una imagen desde tu portapapeles (Ctrl+V).</p>
         </div>
             <div className="text-center mt-4">
-                  <input ref={projectInputRef} type="file" accept="application/json" className="hidden" onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file || !projectInputRef.current) return;
-                    try {
-                        const text = await file.text();
-                        const json = JSON.parse(text);
-                      if (typeof onImportProject === 'function') onImportProject(json);
-                    } catch (err) {
-                        console.error('Invalid project file', err);
-                        alert('Archivo de proyecto inválido');
-                    } finally {
-                        e.currentTarget.value = '';
-                    }
-                }} />
+                                    <input
+                                        ref={projectInputRef}
+                                        type="file"
+                                        accept="application/json"
+                                        className="hidden"
+                                        onChange={async (e) => {
+                                            const inputEl = e.currentTarget as HTMLInputElement;
+                                            const file = inputEl.files?.[0];
+                                            if (!file) {
+                                                // clear value synchronously and bail out
+                                                try { inputEl.value = ''; } catch {}
+                                                return;
+                                            }
+                                            try {
+                                                const text = await file.text();
+                                                const json = JSON.parse(text);
+                                                if (typeof onImportProject === 'function') onImportProject(json);
+                                            } catch (err) {
+                                                console.error('Invalid project file', err);
+                                                alert('Archivo de proyecto inválido');
+                                            } finally {
+                                                try { inputEl.value = ''; } catch {}
+                                            }
+                                        }}
+                                    />
                 <button onClick={() => projectInputRef.current?.click()} className="mt-2 text-sm text-slate-400 underline">Importar proyecto (.json)</button>
             </div>
     </div>
