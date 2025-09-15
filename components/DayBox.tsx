@@ -5,6 +5,11 @@ import type { Logo, Palette } from '../types';
 const GLOBAL_LOGO_SCALE = 1.5;
 
 // --- AJUSTES MANUALES DE TAMAÑO ---
+// Este mapa permite ajustar manualmente el "peso" visual de cada logo
+// (multiplicador aplicado al scale calculado automáticamente). Valores
+// >1 aumentan el tamaño visual; <1 lo reducen. Si un logo aparece
+// demasiado grande o pequeño en la composición, añade o ajusta su entrada
+// aquí (usa la clave normalizada que corresponde al nombre/filename).
 const MANUAL_ADJUSTMENTS: Record<string, number> = {
   'art club': 1.05,
   'bonded club': 1,
@@ -16,9 +21,11 @@ const MANUAL_ADJUSTMENTS: Record<string, number> = {
   'bardot': 0.95,
   'chango': 1.4,
   'manama': 1.15,
-  'etnia': 1.90,
+  // Ajuste: Etnia se incrementa ligeramente porque se veía pequeño en el diseño.
+  'etnia': 2.2,
   'la fira': 1.15,
-  'fitz marbella': 1,
+  // Ajuste: Fitz se reduce (hay varias variantes de 'fitz' en nombres de fichero).
+  'fitz marbella': 0.7,
   'grace madrid': 1.20,
   'gran cafe el espejo': 0.9,
   'guss club': 1,
@@ -41,7 +48,7 @@ const MANUAL_ADJUSTMENTS: Record<string, number> = {
   'oh my club': 0.7,
   'epoka the club': 1,
   'fabrik': 0.85,
-  'fitz club': 1,
+  'fitz club': 0.8,
   'florida park': 0.85,
   'fortuny': 0.9,
   'gunilla': 1.10,
@@ -49,10 +56,12 @@ const MANUAL_ADJUSTMENTS: Record<string, number> = {
   'teatro kapital': 1.10,
   'kumarah': 1.2,
   'lab the club': 0.85,
-  'la riviera': 1.05,
+  // Ajuste: La Riviera un poco más pequeño para equilibrar con otros logos.
+  'la riviera': 0.5,
   'la santa': 1,
   'meneo': 1,
-  'panda club': 0.85,
+  // Ajuste: Panda se reduce porque suele aparecer demasiado grande visualmente.
+  'panda club': 0.4,
   'posh club': 0.8,
   'shoko madrid': 1,
   'teatro barcelo': 0.75,
@@ -112,25 +121,132 @@ const normalizeNameKey = (s: string) => {
   try {
     s = s.normalize('NFD').replace(/\p{Diacritic}/gu, '');
   } catch (e) {
+    // Fallback for environments without Unicode property escapes: remove combining diacritics
     s = s.replace(/[\u0300-\u036f]/g, '');
   }
   return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 };
 
 interface DayBoxProps {
+  dayId?: string;
   dayName: string;
   logos: Logo[];
   logoScale: number;
   onClick: () => void;
   palette: Palette;
   gridCols: number;
+  /** Si se proporciona, este valor se usa para renderizar la etiqueta en lugar de la escala dinámica calculada localmente */
+  labelOverrideScale?: number;
+  /** Callback para notificar al padre de la escala calculada localmente (sin aplicar labelOverrideScale) */
+  onLabelMeasured?: (dayId: string, scale: number) => void;
 }
 
-const DayBox: React.FC<DayBoxProps> = ({ dayName, logos, logoScale, onClick, palette, gridCols }) => {
+// ==================================================================
+// --- COMPONENTE DayLabel CORREGIDO (NUEVA ESTRATEGIA) ---
+// ==================================================================
+const DayLabel: React.FC<{ dayName: string; color: string; forcedScale?: number; onMeasured?: (scale: number) => void; id?: string }> = ({ dayName, color, forcedScale, onMeasured }) => {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const [dynamicScale, setDynamicScale] = React.useState<number>(1);
+  const lastReported = React.useRef<number | null>(null);
+
+  useEffect(() => {
+    const calculateOptimalScale = () => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const containerHeight = container.getBoundingClientRect().height;
+      if (containerHeight <= 0) return;
+
+      const measurer = document.createElement('div');
+      measurer.style.position = 'absolute';
+      measurer.style.visibility = 'hidden';
+      measurer.style.pointerEvents = 'none';
+      measurer.style.left = '-9999px';
+      measurer.style.top = '-9999px';
+      measurer.style.width = 'max-content';
+      measurer.innerHTML = `<h3 style="font-weight:900;font-size:20px;letter-spacing:0.35em;writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);margin:0;padding:0;line-height:1;white-space:nowrap;">${dayName}</h3>`;
+      
+      document.body.appendChild(measurer);
+      const textHeight = measurer.getBoundingClientRect().height;
+      document.body.removeChild(measurer);
+
+      // Calcular escala para que el texto ocupe un 85% de la altura, dejando un margen de aire
+      const targetHeight = containerHeight * 0.85; 
+      const optimalScale = textHeight > 0 ? (targetHeight / textHeight) : 1;
+      
+      const finalScale = Math.max(0.5, Math.min(1.2, optimalScale));
+      setDynamicScale(finalScale);
+      // Notificar al padre con la escala calculada (sin tener en cuenta forcedScale)
+      try {
+        if (typeof onMeasured === 'function') {
+          // Evitar notificaciones redundantes
+          if (lastReported.current !== finalScale) {
+            lastReported.current = finalScale;
+            onMeasured(finalScale);
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    calculateOptimalScale();
+
+    const resizeObserver = new ResizeObserver(() => {
+      setTimeout(calculateOptimalScale, 10);
+    });
+
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [dayName]);
+
+  return (
+    // 1. El contenedor ahora es 'relative' para posicionar el h3 en su interior.
+    <div 
+      ref={containerRef} 
+      className="w-10 h-full min-h-0 relative daybox-measure-root flex items-center justify-center"
+    >
+      {/* 
+        2. CAMBIO CLAVE: Posicionamiento absoluto para un centrado perfecto.
+        - 'absolute', 'top-1/2', 'left-1/2' colocan el punto superior izquierdo del h3 en el centro.
+        - 'transform: translate(-50%, -50%)' mueve el h3 hacia atrás por la mitad de su propio tamaño,
+          alineando su centro con el centro del contenedor.
+        - A esto se le añade la rotación y el escalado.
+      */}
+      <h3 
+        className="font-black text-xl uppercase tracking-[0.35em] leading-none whitespace-nowrap" 
+        style={{ 
+          writingMode: 'vertical-rl', 
+          textOrientation: 'mixed', 
+          color,
+          margin: 0, 
+          padding: 0,
+          // Pequeño ajuste vertical (nudge) para compensar el desbalance visual y centrar mejor.
+          // Si quieres cambiar la cantidad, ajusta NUDGE_PX más abajo.
+          // Si el padre provee forcedScale, lo usamos visualmente; en caso contrario usamos la escala dinámica calculada.
+          transform: `translateY(2px) rotate(180deg) scale(${typeof forcedScale === 'number' ? forcedScale : dynamicScale})`,
+          transformOrigin: 'center',
+          transition: 'transform 200ms ease-out',
+          display: 'inline-block',
+          lineHeight: 1,
+        }}
+      >
+        {dayName}
+      </h3>
+    </div>
+  );
+};
+
+
+const DayBox: React.FC<DayBoxProps> = ({ dayId, dayName, logos, logoScale, onClick, palette, gridCols, labelOverrideScale, onLabelMeasured }) => {
   const [uiState, setUiState] = useState<Record<string, { size: number; selected: boolean; color?: string; normalizedScale?: number; isWide?: boolean; bboxW?: number; bboxH?: number }>>({});
 
   useEffect(() => {
-    // Sincronizar estado de la UI con la lista de logos
     setUiState(prev => {
       const next: typeof prev = {};
       for (const l of logos) {
@@ -141,11 +257,9 @@ const DayBox: React.FC<DayBoxProps> = ({ dayName, logos, logoScale, onClick, pal
   }, [logos]);
 
   useEffect(() => {
-    // Calcular escalas y si son anchos
     let cancelled = false;
     (async () => {
       if (!logos || logos.length === 0) return;
-      // ... (El resto de este useEffect no necesita cambios, se mantiene igual)
        try {
         const results: { id: string; bboxMax: number; fallbackMax: number; bboxW?: number; bboxH?: number }[] = [];
         for (const logo of logos) {
@@ -239,7 +353,6 @@ const DayBox: React.FC<DayBoxProps> = ({ dayName, logos, logoScale, onClick, pal
   }, [logos]);
 
   useEffect(() => {
-    // Limpiar selección de logos
     const handler = () => setUiState(p => { const n = { ...p }; for (const k in n) n[k] = { ...n[k], selected: false }; return n; });
     window.addEventListener('clearLogoSelection', handler as EventListener);
     return () => window.removeEventListener('clearLogoSelection', handler as EventListener);
@@ -287,33 +400,35 @@ const DayBox: React.FC<DayBoxProps> = ({ dayName, logos, logoScale, onClick, pal
   const maxCount = Math.max(1, ...interleavedRows.map(r => r.length));
   
   return (
-    <div className="p-0 pt-4 rounded-lg group transition-all duration-300 relative h-40 backdrop-blur-lg" onClick={onClick} style={{ backgroundColor: `${palette.primary}1A` }}>
+    // Subimos ligeramente todo el DayBox con translateY negativo para elevar los cuadros
+    <div className="px-0 py-2 rounded-lg group transition-all duration-300 relative h-40 backdrop-blur-lg" onClick={onClick} style={{ backgroundColor: `${palette.primary}1A`, transform: 'translateY(-4px)' }}>
       <div className="absolute -inset-px rounded-lg bg-gradient-to-r from-violet-500/50 to-fuchsia-500/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{'--glow-color': palette.accent} as React.CSSProperties}></div>
-  <div className="relative w-full h-full rounded-md flex flex-row items-stretch gap-0 p-0">
-  <div className="flex items-start justify-center pl-0 pr-4 pt-2">
-          <h3 className="font-black text-xl uppercase tracking-[0.4em]" style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)', color: palette.primary }}>
-            {dayName}
-          </h3>
+      <div className="relative w-full h-full rounded-md flex flex-row items-stretch gap-0 p-0">
+          <div className="flex-shrink-0 pl-0 pr-4 py-2">
+          <DayLabel 
+            id={dayId}
+            dayName={dayName} 
+            color={palette.primary} 
+            forcedScale={labelOverrideScale}
+            onMeasured={(scale) => {
+              if (typeof onLabelMeasured === 'function') onLabelMeasured(dayId || dayName, scale);
+            }}
+          />
         </div>
-  <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0">
           {logos.length > 0 ? (
             <div className="flex flex-col justify-end h-full w-full pb-1">
               {interleavedRows.map((interleaved, rowIndex) => {
-                // --- CAMBIO CLAVE ---
-                // Determina la clase de justificación dinámicamente.
-                // Si la fila tiene menos logos que la más larga, usa 'justify-around' para espaciarlos.
                 const isFullRow = interleaved.length >= maxCount;
                 const rowJustifyClass = isFullRow ? 'justify-center' : 'justify-around';
-                const normalizedCellWidth = 100 / interleaved.length; // Ancho de celda basado en la fila actual
+                const normalizedCellWidth = 100 / interleaved.length;
 
                 return (
                   <div key={rowIndex} className={`flex ${rowJustifyClass} items-center flex-1 min-h-0`}>
                     {interleaved.map((logo, i) => {
                       const state = uiState[logo.id] || { size: 1, selected: false, isWide: false };
                       const rawNormalized = state.normalizedScale || 1;
-                      // Forzar escala global fija en lugar de usar la prop `logoScale`
                       const displayScale = Math.min(2.2, Math.max(0.55, GLOBAL_LOGO_SCALE * (state.size || 1) * rawNormalized));
-                      // Usamos el ancho de celda de la fila actual para que ocupen todo el espacio
                       const wrapperStyle: React.CSSProperties = { width: `${normalizedCellWidth}%`, height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative', transition: 'margin 150ms ease' };
                       const left = interleaved[i - 1], right = interleaved[i + 1];
                       if (state.selected) { wrapperStyle.marginLeft = 6; wrapperStyle.marginRight = 6; (wrapperStyle as any).zIndex = 40; }
@@ -323,7 +438,6 @@ const DayBox: React.FC<DayBoxProps> = ({ dayName, logos, logoScale, onClick, pal
                       
                       return (
                         <div key={logo.id} style={wrapperStyle}>
-                          {/* Ajuste: Aumentamos un poco el padding interno para dar más aire al logo */}
                           <div onClick={(e) => toggleSelect(logo.id, e)} className="relative flex items-center justify-center cursor-pointer w-full h-full p-1" style={{ ...highlightStyle }}>
                             <img src={logo.dataUrl} alt={logo.name} draggable="false" style={{ display: 'block', objectFit: 'contain', width: '100%', height: '100%', transform: `scale(${displayScale})`, transformOrigin: 'center', transition: 'transform 120ms linear', pointerEvents: 'none' }} />
                             {state.selected && (

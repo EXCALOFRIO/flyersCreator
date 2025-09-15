@@ -89,7 +89,23 @@ const FlyerCanvas = forwardRef<HTMLDivElement, FlyerCanvasProps>(
     const maxLogos = Math.max(0, ...dayBoxes.map(box => box.logoIds.length));
     const { cols: globalCols } = getLogoGridLayout(maxLogos);
 
-    return (
+        // Estado local para almacenar las escalas medidas por cada DayLabel
+        const [measuredLabelScales, setMeasuredLabelScales] = React.useState<Record<string, number>>({});
+
+        // Callback que cada DayBox llamará al medir su DayLabel localmente
+        const handleLabelMeasured = (dayId: string, scale: number) => {
+            setMeasuredLabelScales(prev => {
+                if (!dayId) return prev;
+                if (prev[dayId] === scale) return prev;
+                return { ...prev, [dayId]: scale };
+            });
+        };
+
+        // Calcular la escala mínima entre las mediciones existentes; si no hay mediciones, undefined
+        const measuredValues = Object.values(measuredLabelScales).filter((v): v is number => typeof v === 'number' && isFinite(v));
+        const minMeasuredScale: number | undefined = measuredValues.length > 0 ? Math.min(...measuredValues) : undefined;
+
+        return (
             <div 
                 ref={ref} 
                 className="w-[360px] h-[640px] md:w-[405px] md:h-[720px] lg:w-[450px] lg:h-[800px] bg-center relative overflow-hidden shadow-2xl flex flex-col justify-center items-center rounded-2xl"
@@ -125,22 +141,26 @@ const FlyerCanvas = forwardRef<HTMLDivElement, FlyerCanvasProps>(
             </div>
         )}
 
-    <div className="relative z-10 w-full h-full flex flex-col items-center justify-center flex-grow p-2">
-            <div className={layoutClassName}>
+    <div className="relative z-10 w-full h-full flex flex-col items-center justify-center flex-grow p-2" style={{ transform: 'translateY(-6px)' }}>
+        <div className={layoutClassName} style={{ marginTop: '-4px' }}>
                 {dayBoxes.map(box => (
                     <DayBox
                         key={box.id}
+                        dayId={box.id}
                         dayName={box.dayName}
                         logos={allLogos.filter(logo => box.logoIds.includes(logo.id))}
                         logoScale={logoScale}
                         onClick={() => onDayBoxClick(box.id)}
                         palette={palette}
                         gridCols={globalCols}
+                        onLabelMeasured={handleLabelMeasured}
+                        // Si ya tenemos una mínima medida, la forzamos en todas las DayLabel
+                        labelOverrideScale={minMeasuredScale}
                     />
                 ))}
             </div>
         
-            <div className="relative w-full mt-6 shrink-0">
+            <div className="relative w-full mt-4 shrink-0" style={{ transform: 'translateY(-6px)' }}>
                 <h2 style={{ fontSize: `${slogan.fontSize}px`, ...getSloganStyle(slogan, palette) }}>{slogan.text}</h2>
             </div>
         </div>
