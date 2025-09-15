@@ -24,8 +24,7 @@ const MANUAL_ADJUSTMENTS: Record<string, number> = {
   // Ajuste: Etnia se incrementa ligeramente porque se veía pequeño en el diseño.
   'etnia': 2.2,
   'la fira': 1.15,
-  // Ajuste: Fitz se reduce (hay varias variantes de 'fitz' en nombres de fichero).
-  'fitz marbella': 0.7,
+  'fitz marbella': 1,
   'grace madrid': 1.20,
   'gran cafe el espejo': 0.9,
   'guss club': 1,
@@ -48,7 +47,7 @@ const MANUAL_ADJUSTMENTS: Record<string, number> = {
   'oh my club': 0.7,
   'epoka the club': 1,
   'fabrik': 0.85,
-  'fitz club': 0.8,
+  'fitz club': 1,
   'florida park': 0.85,
   'fortuny': 0.9,
   'gunilla': 1.10,
