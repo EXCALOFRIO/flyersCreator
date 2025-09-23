@@ -141,8 +141,8 @@ const FlyerCanvas = forwardRef<HTMLDivElement, FlyerCanvasProps>(
             </div>
         )}
 
-    <div className="relative z-10 w-full h-full flex flex-col items-center justify-center flex-grow p-2" style={{ transform: 'translateY(-6px)' }}>
-        <div className={layoutClassName} style={{ marginTop: '-4px' }}>
+    <div className="relative z-10 w-full h-full flex flex-col items-center justify-center flex-grow p-1.5" style={{ transform: 'translateY(-6px)' }}>
+        <div className={layoutClassName} style={{ marginTop: '-6px' }}>
                 {dayBoxes.map(box => (
                     <DayBox
                         key={box.id}
@@ -160,7 +160,7 @@ const FlyerCanvas = forwardRef<HTMLDivElement, FlyerCanvasProps>(
                 ))}
             </div>
         
-            <div className="relative w-full mt-4 shrink-0" style={{ transform: 'translateY(-6px)' }}>
+            <div className="relative w-full mt-3 shrink-0" style={{ transform: 'translateY(-6px)' }}>
                 <h2 style={{ fontSize: `${slogan.fontSize}px`, ...getSloganStyle(slogan, palette) }}>{slogan.text}</h2>
             </div>
         </div>

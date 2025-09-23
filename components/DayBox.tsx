@@ -208,7 +208,7 @@ const DayLabel: React.FC<{ dayName: string; color: string; forcedScale?: number;
     // 1. El contenedor ahora es 'relative' para posicionar el h3 en su interior.
     <div 
       ref={containerRef} 
-      className="w-10 h-full min-h-0 relative daybox-measure-root flex items-center justify-center"
+      className="w-9 h-full min-h-0 relative daybox-measure-root flex items-center justify-center"
     >
       {/* 
         2. CAMBIO CLAVE: Posicionamiento absoluto para un centrado perfecto.
@@ -400,10 +400,10 @@ const DayBox: React.FC<DayBoxProps> = ({ dayId, dayName, logos, logoScale, onCli
   
   return (
     // Subimos ligeramente todo el DayBox con translateY negativo para elevar los cuadros
-    <div className="px-0 py-2 rounded-lg group transition-all duration-300 relative h-40 backdrop-blur-lg" onClick={onClick} style={{ backgroundColor: `${palette.primary}1A`, transform: 'translateY(-4px)' }}>
+  <div className="px-0 py-1 rounded-lg group transition-all duration-300 relative h-40 backdrop-blur-lg" onClick={onClick} style={{ backgroundColor: `${palette.primary}1A`, transform: 'translateY(-4px)' }}>
       <div className="absolute -inset-px rounded-lg bg-gradient-to-r from-violet-500/50 to-fuchsia-500/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{'--glow-color': palette.accent} as React.CSSProperties}></div>
-      <div className="relative w-full h-full rounded-md flex flex-row items-stretch gap-0 p-0">
-          <div className="flex-shrink-0 pl-0 pr-4 py-2">
+    <div className="relative w-full h-full rounded-md flex flex-row items-stretch gap-0 p-0">
+      <div className="flex-shrink-0 pl-0 pr-0 py-1 ml-[-8px]">
           <DayLabel 
             id={dayId}
             dayName={dayName} 
