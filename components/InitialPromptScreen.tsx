@@ -9,6 +9,13 @@ interface InitialPromptScreenProps {
     onImportProject?: (project: any) => void;
 }
 
+// Presets de días
+const DAY_PRESETS = [
+  { label: 'Jue-Sáb', days: ['JUEVES', 'VIERNES', 'SÁBADO'] },
+  { label: 'Mié-Vie', days: ['MIÉRCOLES', 'JUEVES', 'VIERNES'] },
+  { label: 'Vie-Dom', days: ['VIERNES', 'SÁBADO', 'DOMINGO'] },
+];
+
 // Compress and downscale an image to stay well below Vercel's 4-5MB body limit.
 // Returns a JPEG data URL (quality ~0.75) with max dimension capped.
 const compressImageFile = (
@@ -70,6 +77,7 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
   const [files, setFiles] = useState<{ dataUrl: string, mimeType: string, name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDays, setSelectedDays] = useState<string[]>(['JUEVES', 'VIERNES', 'SÁBADO']);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
     const projectInputRef = useRef<HTMLInputElement | null>(null);
@@ -128,6 +136,23 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
     setIsLoading(true);
     setError(null);
 
+    // Crear schema dinámico basado en los días seleccionados
+    const dayKeys = selectedDays.map(d => d.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    const schemaProperties: Record<string, any> = {};
+    const requiredKeys: string[] = [];
+    
+    selectedDays.forEach((day, index) => {
+      const key = dayKeys[index];
+      schemaProperties[key] = { 
+        type: 'array', 
+        description: `Logos para el ${day}.`, 
+        items: { type: 'string' }
+      };
+      requiredKeys.push(key);
+    });
+
+    const daysListText = selectedDays.join(', ');
+
     try {
         const promptParts: any[] = [
             { text: `Petición del usuario: "${textValue}"` },
@@ -148,16 +173,12 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
             model: "gemini-2.5-flash",
             contents: { parts: promptParts },
             config: {
-                systemInstruction: "Eres un asistente experto en diseño de flyers para discotecas. Tu tarea es analizar la petición del usuario (que puede incluir texto y una imagen de referencia) y determinar qué logos de discotecas deben aparecer para los días JUEVES, VIERNES y SÁBADO. Debes usar ÚNICAMENTE los nombres de archivo de la lista proporcionada. Tu respuesta DEBE ser un objeto JSON con tres claves: 'jueves', 'viernes', y 'sabado'. El valor de cada clave debe ser un array de strings, donde cada string es un nombre de archivo de logo exacto de la lista de logos disponibles.",
+                systemInstruction: `Eres un asistente experto en diseño de flyers para discotecas. Tu tarea es analizar la petición del usuario (que puede incluir texto y una imagen de referencia) y determinar qué logos de discotecas deben aparecer para los días ${daysListText}. Debes usar ÚNICAMENTE los nombres de archivo de la lista proporcionada. Tu respuesta DEBE ser un objeto JSON con las claves: ${dayKeys.map(k => `'${k}'`).join(', ')}. El valor de cada clave debe ser un array de strings, donde cada string es un nombre de archivo de logo exacto de la lista de logos disponibles.`,
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: 'object',
-                    properties: {
-                        jueves: { type: 'array', description: 'Logos para el Jueves.', items: { type: 'string' }},
-                        viernes: { type: 'array', description: 'Logos para el Viernes.', items: { type: 'string' }},
-                        sabado: { type: 'array', description: 'Logos para el Sábado.', items: { type: 'string' }},
-                    },
-                    required: ['jueves', 'viernes', 'sabado']
+                    properties: schemaProperties,
+                    required: requiredKeys
                 },
             },
         };
@@ -184,11 +205,14 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
         const responseText = serverJson.text;
         const parsedResponse = JSON.parse(responseText);
 
-        const dayBoxes: DayBoxData[] = [
-            { id: 'day-jueves', dayName: 'JUEVES', logoIds: parsedResponse.jueves || [] },
-            { id: 'day-viernes', dayName: 'VIERNES', logoIds: parsedResponse.viernes || [] },
-            { id: 'day-sabado', dayName: 'SÁBADO', logoIds: parsedResponse.sabado || [] },
-        ];
+        const dayBoxes: DayBoxData[] = selectedDays.map((day, index) => {
+            const key = dayKeys[index];
+            return {
+                id: `day-${key}`,
+                dayName: day,
+                logoIds: parsedResponse[key] || []
+            };
+        });
         
         onSuccess(dayBoxes);
 
@@ -205,6 +229,27 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
         <div className="text-center mb-8 max-w-2xl">
             <h1 className="text-4xl md:text-5xl font-extrabold text-white mb-3 font-display" style={{fontFamily: "'Unbounded', sans-serif"}}>Flyer Night Pro</h1>
             <p className="text-slate-400 text-lg">Describe tu flyer o sube una imagen de referencia. La IA lo configurará por ti.</p>
+        </div>
+
+        {/* Selector de días */}
+        <div className="w-full max-w-2xl mx-auto mb-4">
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+                <span className="text-slate-400 text-sm mr-2">Días:</span>
+                {DAY_PRESETS.map((preset) => (
+                    <button
+                        key={preset.label}
+                        onClick={() => setSelectedDays(preset.days)}
+                        disabled={isLoading}
+                        className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${
+                            JSON.stringify(selectedDays) === JSON.stringify(preset.days)
+                                ? 'bg-violet-600 text-white border-violet-500 shadow-lg shadow-violet-500/20'
+                                : 'bg-slate-800/50 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'
+                        } disabled:opacity-50`}
+                    >
+                        {preset.label}
+                    </button>
+                ))}
+            </div>
         </div>
 
         <div className="w-full max-w-2xl mx-auto rounded-2xl border border-slate-700/40 shadow-xl bg-slate-900/30 backdrop-blur-xl p-4 space-y-3">

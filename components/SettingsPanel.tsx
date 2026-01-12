@@ -1,8 +1,18 @@
 import React, { useRef } from 'react';
-import type { Palette, Slogan, GenerationStatus } from '../types';
+import type { Palette, Slogan, GenerationStatus, DayBoxData } from '../types';
 import { SloganStyle } from '../types';
 
 type Background = { image: string; blur: number; brightness: number };
+
+// Días disponibles para seleccionar
+const AVAILABLE_DAYS = ['LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO', 'DOMINGO'];
+
+// Presets de días comunes
+const DAY_PRESETS = [
+  { label: 'Jue-Sáb', days: ['JUEVES', 'VIERNES', 'SÁBADO'] },
+  { label: 'Mié-Vie', days: ['MIÉRCOLES', 'JUEVES', 'VIERNES'] },
+  { label: 'Vie-Dom', days: ['VIERNES', 'SÁBADO', 'DOMINGO'] },
+];
 
 interface SettingsPanelProps {
   background: Background;
@@ -19,6 +29,8 @@ interface SettingsPanelProps {
   generationStatus: GenerationStatus;
   onGenerateBackground: () => void;
   onCustomBackgroundUpload: (file: File) => void;
+  dayBoxes: DayBoxData[];
+  onDayBoxesChange: (dayBoxes: DayBoxData[]) => void;
 }
 
 const FONT_FAMILIES = ['Unbounded', 'Teko', 'Chakra Petch', 'Syncopate', 'Monoton', 'Audiowide', 'Rubik Mono One'];
@@ -66,7 +78,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onExportProject,
   palettes,
   selectedPaletteIndex, onSelectPalette,
-  generationStatus, onGenerateBackground, onCustomBackgroundUpload
+  generationStatus, onGenerateBackground, onCustomBackgroundUpload,
+  dayBoxes, onDayBoxesChange
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -92,6 +105,30 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
           default: return 'Buscar Fondo';
       }
   }
+
+  // Obtener los días actuales seleccionados
+  const currentDays = dayBoxes.map(box => box.dayName);
+
+  // Cambiar los días del flyer
+  const handleDaysChange = (newDays: string[]) => {
+    const newDayBoxes = newDays.map((dayName, index) => {
+      // Intentar preservar los logos del día en la misma posición
+      const existingBox = dayBoxes[index];
+      return {
+        id: `day-${dayName.toLowerCase().replace('é', 'e').replace('á', 'a')}`,
+        dayName,
+        logoIds: existingBox?.logoIds || [],
+      };
+    });
+    onDayBoxesChange(newDayBoxes);
+  };
+
+  // Cambiar un día específico
+  const handleSingleDayChange = (index: number, newDay: string) => {
+    const newDays = [...currentDays];
+    newDays[index] = newDay;
+    handleDaysChange(newDays);
+  };
 
   return (
     <aside className="w-full md:w-96 bg-[#111723] p-6 overflow-y-auto h-full flex flex-col justify-between shadow-lg border-l border-slate-800">
@@ -141,6 +178,42 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
           <div className="mt-4 space-y-4">
             <StyledRangeSlider label="Desenfoque" value={background.blur} min={0} max={10} step={0.1} onChange={(val) => onBackgroundChange({...background, blur: val})} />
             <StyledRangeSlider label="Oscurecer" value={background.brightness} min={0} max={100} onChange={(val) => onBackgroundChange({...background, brightness: val})} />
+          </div>
+        </SettingsSection>
+
+        <SettingsSection title="Días del Flyer">
+          <div className="space-y-3">
+            <div className="flex gap-2 flex-wrap">
+              {DAY_PRESETS.map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={() => handleDaysChange(preset.days)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                    JSON.stringify(currentDays) === JSON.stringify(preset.days)
+                      ? 'bg-violet-600 text-white border-transparent'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <div className="space-y-2">
+              {currentDays.map((day, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 w-12">Día {index + 1}:</span>
+                  <select
+                    value={day}
+                    onChange={(e) => handleSingleDayChange(index, e.target.value)}
+                    className="flex-1 bg-slate-800 p-2 rounded-lg border border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition"
+                  >
+                    {AVAILABLE_DAYS.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
           </div>
         </SettingsSection>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { Logo, Palette } from '../types';
 
 // Escala global fija para logos (requerido por el usuario)
@@ -138,6 +138,8 @@ interface DayBoxProps {
   labelOverrideScale?: number;
   /** Callback para notificar al padre de la escala calculada localmente (sin aplicar labelOverrideScale) */
   onLabelMeasured?: (dayId: string, scale: number) => void;
+  /** Callback para reordenar logos */
+  onReorderLogos?: (dayId: string, newLogoIds: string[]) => void;
 }
 
 // ==================================================================
@@ -242,8 +244,13 @@ const DayLabel: React.FC<{ dayName: string; color: string; forcedScale?: number;
 };
 
 
-const DayBox: React.FC<DayBoxProps> = ({ dayId, dayName, logos, logoScale, onClick, palette, gridCols, labelOverrideScale, onLabelMeasured }) => {
+const DayBox: React.FC<DayBoxProps> = ({ dayId, dayName, logos, logoScale, onClick, palette, gridCols, labelOverrideScale, onLabelMeasured, onReorderLogos }) => {
   const [uiState, setUiState] = useState<Record<string, { size: number; selected: boolean; color?: string; normalizedScale?: number; isWide?: boolean; bboxW?: number; bboxH?: number }>>({});
+  
+  // Drag & drop state
+  const [draggedLogoId, setDraggedLogoId] = useState<string | null>(null);
+  const [dragOverLogoId, setDragOverLogoId] = useState<string | null>(null);
+  const dragCounter = useRef(0);
 
   useEffect(() => {
     setUiState(prev => {
@@ -359,44 +366,86 @@ const DayBox: React.FC<DayBoxProps> = ({ dayId, dayName, logos, logoScale, onCli
 
   const toggleSelect = (logoId: string, e: React.MouseEvent) => { e.stopPropagation(); setUiState(p => { const c = p[logoId] || { size: 1, selected: false }; if (!c.selected) { const n = {}; for (const k of Object.keys(p)) n[k] = { ...p[k], selected: false }; n[logoId] = { ...c, selected: true, color: palette.accent || '#ff0' }; return n; } return { ...p, [logoId]: { ...c, selected: false } }; }); };
   const changeSize = (logoId: string, delta: number, e: React.MouseEvent) => { e.stopPropagation(); setUiState(p => { const c = p[logoId] || { size: 1, selected: false }; const n = Math.min(1.6, Math.max(0.5, +(c.size + delta).toFixed(2))); return { ...p, [logoId]: { ...c, size: n } }; }); };
+  
+  // Drag & drop handlers
+  const handleDragStart = (e: React.DragEvent, logoId: string) => {
+    setDraggedLogoId(logoId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', logoId);
+    // Hacer el elemento semi-transparente mientras se arrastra
+    const target = e.currentTarget as HTMLElement;
+    setTimeout(() => { target.style.opacity = '0.4'; }, 0);
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    const target = e.currentTarget as HTMLElement;
+    target.style.opacity = '1';
+    setDraggedLogoId(null);
+    setDragOverLogoId(null);
+    dragCounter.current = 0;
+  };
+
+  const handleDragEnter = (e: React.DragEvent, logoId: string) => {
+    e.preventDefault();
+    dragCounter.current++;
+    if (logoId !== draggedLogoId) {
+      setDragOverLogoId(logoId);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setDragOverLogoId(null);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent, targetLogoId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverLogoId(null);
+    dragCounter.current = 0;
+
+    if (!draggedLogoId || draggedLogoId === targetLogoId || !onReorderLogos || !dayId) return;
+
+    // Reordenar: mover el logo arrastrado a la posición del target
+    const currentOrder = logos.map(l => l.id);
+    const draggedIndex = currentOrder.indexOf(draggedLogoId);
+    const targetIndex = currentOrder.indexOf(targetLogoId);
+
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    const newOrder = [...currentOrder];
+    newOrder.splice(draggedIndex, 1);
+    newOrder.splice(targetIndex, 0, draggedLogoId);
+
+    onReorderLogos(dayId, newOrder);
+    setDraggedLogoId(null);
+  };
+
   const partitionLogoRows = (n: number, maxRows = 3): number[] => { if (n <= 0) return []; const r = Math.min(maxRows, Math.max(1, Math.ceil(n / 4))); const b = Math.floor(n / r); const rem = n % r; const a = []; for (let i = 0; i < r; i++) a.push(b + (i < rem ? 1 : 0)); return a; };
 
-  const createBalancedChunks = (allLogos: Logo[], state: typeof uiState): Logo[][] => {
-    if (!allLogos.length || !Object.keys(state).length) return [];
-    const wideLogos = allLogos.filter(l => state[l.id]?.isWide);
-    const narrowLogos = allLogos.filter(l => !state[l.id]?.isWide);
+  // Simplificado: divide los logos en filas respetando el orden del usuario
+  const createSimpleRows = (allLogos: Logo[]): Logo[][] => {
+    if (!allLogos.length) return [];
     const rowCounts = partitionLogoRows(allLogos.length, 3);
-    const chunks = rowCounts.map(capacity => ({ capacity, logos: [] as Logo[] }));
-    while (wideLogos.length > 0) {
-      const targetChunk = chunks.filter(c => c.logos.length < c.capacity).sort((a, b) => { const wA = a.logos.filter(l => state[l.id]?.isWide).length; const wB = b.logos.filter(l => state[l.id]?.isWide).length; if (wA !== wB) return wA - wB; return b.capacity - a.capacity; })[0];
-      if (targetChunk) targetChunk.logos.push(wideLogos.shift()!); else break;
+    const rows: Logo[][] = [];
+    let idx = 0;
+    for (const count of rowCounts) {
+      rows.push(allLogos.slice(idx, idx + count));
+      idx += count;
     }
-    const remainingLogos = [...narrowLogos, ...wideLogos];
-    for (const chunk of chunks) {
-      while (chunk.logos.length < chunk.capacity && remainingLogos.length > 0) {
-        chunk.logos.push(remainingLogos.shift()!);
-      }
-    }
-    return chunks.map(c => c.logos);
+    return rows;
   };
 
-  const interleaveRow = (chunk: Logo[]): Logo[] => {
-    const wide = chunk.filter(l => uiState[l.id]?.isWide);
-    const narrow = chunk.filter(l => !uiState[l.id]?.isWide);
-    if (wide.length === 0 || narrow.length === 0) return chunk;
-    const result: Logo[] = [];
-    let turn = wide.length > narrow.length ? 'wide' : 'narrow';
-    while (wide.length || narrow.length) {
-      if (turn === 'wide' && wide.length) { result.push(wide.shift()!); turn = 'narrow'; }
-      else if (turn === 'narrow' && narrow.length) { result.push(narrow.shift()!); turn = 'wide'; }
-      else { turn = turn === 'wide' ? 'narrow' : 'wide'; }
-    }
-    return result;
-  };
-
-  const logoChunks = createBalancedChunks(logos, uiState);
-  const interleavedRows = logoChunks.map(chunk => interleaveRow(chunk));
-  const maxCount = Math.max(1, ...interleavedRows.map(r => r.length));
+  const logoRows = createSimpleRows(logos);
+  const maxCount = Math.max(1, ...logoRows.map(r => r.length));
   
   return (
     // Subimos ligeramente todo el DayBox con translateY negativo para elevar los cuadros
@@ -417,19 +466,19 @@ const DayBox: React.FC<DayBoxProps> = ({ dayId, dayName, logos, logoScale, onCli
         <div className="flex-1 min-w-0">
           {logos.length > 0 ? (
             <div className="flex flex-col justify-end h-full w-full pb-1">
-              {interleavedRows.map((interleaved, rowIndex) => {
-                const isFullRow = interleaved.length >= maxCount;
+              {logoRows.map((row, rowIndex) => {
+                const isFullRow = row.length >= maxCount;
                 const rowJustifyClass = isFullRow ? 'justify-center' : 'justify-around';
-                const normalizedCellWidth = 100 / interleaved.length;
+                const normalizedCellWidth = 100 / row.length;
 
                 return (
                   <div key={rowIndex} className={`flex ${rowJustifyClass} items-center flex-1 min-h-0`}>
-                    {interleaved.map((logo, i) => {
+                    {row.map((logo, i) => {
                       const state = uiState[logo.id] || { size: 1, selected: false, isWide: false };
                       const rawNormalized = state.normalizedScale || 1;
                       const displayScale = Math.min(2.2, Math.max(0.55, GLOBAL_LOGO_SCALE * (state.size || 1) * rawNormalized));
                       const wrapperStyle: React.CSSProperties = { width: `${normalizedCellWidth}%`, height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative', transition: 'margin 150ms ease' };
-                      const left = interleaved[i - 1], right = interleaved[i + 1];
+                      const left = row[i - 1], right = row[i + 1];
                       if (state.selected) { wrapperStyle.marginLeft = 6; wrapperStyle.marginRight = 6; (wrapperStyle as any).zIndex = 40; }
                       else if (left && uiState[left.id]?.selected) { wrapperStyle.marginLeft = 12; }
                       else if (right && uiState[right.id]?.selected) { wrapperStyle.marginRight = 12; }
@@ -437,7 +486,18 @@ const DayBox: React.FC<DayBoxProps> = ({ dayId, dayName, logos, logoScale, onCli
                       
                       return (
                         <div key={logo.id} style={wrapperStyle}>
-                          <div onClick={(e) => toggleSelect(logo.id, e)} className="relative flex items-center justify-center cursor-pointer w-full h-full p-1" style={{ ...highlightStyle }}>
+                          <div 
+                            onClick={(e) => toggleSelect(logo.id, e)} 
+                            className={`relative flex items-center justify-center cursor-pointer w-full h-full p-1 transition-all duration-150 ${dragOverLogoId === logo.id ? 'ring-2 ring-violet-400 ring-offset-2 ring-offset-transparent rounded-lg scale-105' : ''}`}
+                            style={{ ...highlightStyle }}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, logo.id)}
+                            onDragEnd={handleDragEnd}
+                            onDragEnter={(e) => handleDragEnter(e, logo.id)}
+                            onDragLeave={handleDragLeave}
+                            onDragOver={handleDragOver}
+                            onDrop={(e) => handleDrop(e, logo.id)}
+                          >
                             <img src={logo.dataUrl} alt={logo.name} draggable="false" style={{ display: 'block', objectFit: 'contain', width: '100%', height: '100%', transform: `scale(${displayScale})`, transformOrigin: 'center', transition: 'transform 120ms linear', pointerEvents: 'none' }} />
                             {state.selected && (
                               <div className="absolute right-1 top-1 flex flex-col gap-1 z-20">

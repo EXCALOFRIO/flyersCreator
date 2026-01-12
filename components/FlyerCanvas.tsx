@@ -13,6 +13,7 @@ interface FlyerCanvasProps {
   onDayBoxClick: (dayId: string) => void;
   palette: Palette;
   generationStatus: GenerationStatus;
+  onReorderLogos?: (dayId: string, newLogoIds: string[]) => void;
 }
 
 const getSloganStyle = (slogan: Slogan, palette: Palette): React.CSSProperties => {
@@ -77,7 +78,7 @@ const getLogoGridLayout = (count: number): { cols: number } => {
 
 
 const FlyerCanvas = forwardRef<HTMLDivElement, FlyerCanvasProps>(
-  ({ background, dayBoxes, allLogos, slogan, logoScale, onDayBoxClick, palette, generationStatus }, ref) => {
+  ({ background, dayBoxes, allLogos, slogan, logoScale, onDayBoxClick, palette, generationStatus, onReorderLogos }, ref) => {
     const hasBackgroundImage = background.image && background.image.startsWith('data:');
     
     const dayBoxCount = dayBoxes.length;
@@ -148,14 +149,14 @@ const FlyerCanvas = forwardRef<HTMLDivElement, FlyerCanvasProps>(
                         key={box.id}
                         dayId={box.id}
                         dayName={box.dayName}
-                        logos={allLogos.filter(logo => box.logoIds.includes(logo.id))}
+                        logos={allLogos.filter(logo => box.logoIds.includes(logo.id)).sort((a, b) => box.logoIds.indexOf(a.id) - box.logoIds.indexOf(b.id))}
                         logoScale={logoScale}
                         onClick={() => onDayBoxClick(box.id)}
                         palette={palette}
                         gridCols={globalCols}
                         onLabelMeasured={handleLabelMeasured}
-                        // Si ya tenemos una mínima medida, la forzamos en todas las DayLabel
                         labelOverrideScale={minMeasuredScale}
+                        onReorderLogos={onReorderLogos}
                     />
                 ))}
             </div>

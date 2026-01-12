@@ -282,6 +282,10 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[]; initialSt
     setIsModalOpen(false);
     setSelectedDayId(null);
   };
+
+  const handleReorderLogos = (dayId: string, newLogoIds: string[]) => {
+    setDayBoxes(prev => prev.map(box => box.id === dayId ? { ...box, logoIds: newLogoIds } : box));
+  };
   
   const handleExport = useCallback(async () => {
   if (!flyerRef.current) return;
@@ -362,6 +366,7 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[]; initialSt
           onDayBoxClick={openAssignModal}
           palette={activePalette}
           generationStatus={generationStatus}
+          onReorderLogos={handleReorderLogos}
         />
       </main>
 
@@ -381,6 +386,8 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[]; initialSt
           generationStatus={generationStatus}
           onGenerateBackground={() => setIsThemeSelectorOpen(true)}
           onCustomBackgroundUpload={handleCustomBackgroundUpload}
+          dayBoxes={dayBoxes}
+          onDayBoxesChange={setDayBoxes}
         />
       </div>
 
