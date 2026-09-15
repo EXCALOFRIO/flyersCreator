@@ -2,7 +2,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
-import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai';
+import { createPartFromUri } from '@google/genai';
+import { generateContentWithFallback, uploadFileWithFallback, getGeminiApiKeys } from './_geminiHelper.js';
 
 // Límites conservadores para Vercel
 const PAYLOAD_LIMIT = 4 * 1024 * 1024; // 4MB total payload limit
@@ -42,25 +43,21 @@ export default async function (req, res) {
     return;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) {
+  const apiKeys = getGeminiApiKeys();
+  if (apiKeys.length === 0) {
     res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
     return;
   }
 
   try {
     const body = req.body || {};
-    const ai = new GoogleGenAI({ apiKey });
 
-    // Calcular tamaño del payload
     const payloadSize = Buffer.byteLength(JSON.stringify(body), 'utf8');
     console.log(`[proxy] Payload size: ${Math.round(payloadSize/1024)}KB`);
 
-    // Si el payload es muy grande, usar Files API automáticamente
     if (payloadSize > PAYLOAD_LIMIT) {
       console.log('[proxy] Large payload detected, using Files API');
       
-      // Procesar contents para extraer imágenes inline y subirlas
       const processedContents = [];
       const filesToCleanup = [];
       
@@ -71,7 +68,6 @@ export default async function (req, res) {
               const processedParts = [];
               for (const part of content.parts) {
                 if (part.inlineData && part.inlineData.data) {
-                  // Subir imagen grande a Files API
                   const rawB64 = stripDataPrefix(part.inlineData.data);
                   const imageSize = Buffer.from(rawB64, 'base64').length;
                   
@@ -80,9 +76,9 @@ export default async function (req, res) {
                     const tmpPath = await writeBase64ToTempFile(rawB64, ext);
                     filesToCleanup.push(tmpPath);
                     
-                    const uploaded = await ai.files.upload({
-                      file: tmpPath,
-                      config: { mimeType: part.inlineData.mimeType || 'image/jpeg' }
+                    const { uploaded } = await uploadFileWithFallback({
+                      filePath: tmpPath,
+                      mimeType: part.inlineData.mimeType || 'image/jpeg'
                     });
                     
                     processedParts.push({
@@ -92,11 +88,9 @@ export default async function (req, res) {
                       }
                     });
                   } else {
-                    // Mantener inline si es pequeña
                     processedParts.push(part);
                   }
                 } else {
-                  // Texto o otros tipos
                   processedParts.push(part);
                 }
               }
@@ -109,37 +103,33 @@ export default async function (req, res) {
           processedContents.push(...(body.contents || []));
         }
 
-        // Hacer la petición con contents procesados
-        const result = await ai.models.generateContent({
-          model: body.model || 'gemini-2.5-flash',
+        const genResult = await generateContentWithFallback({
+          requestedModel: body.model || 'gemini-flash-latest',
           contents: processedContents,
           config: body.config
         });
 
-        res.status(200).json({ text: result.text, raw: result });
+        res.status(200).json({ text: genResult.result.text, raw: genResult.result, modelUsed: genResult.modelUsed });
 
       } finally {
-        // Limpiar archivos temporales
         for (const file of filesToCleanup) {
           try { await fs.promises.unlink(file); } catch (e) { console.warn('Failed to cleanup:', file); }
         }
       }
     } else {
-      // Payload pequeño, enviar directamente
       console.log('[proxy] Small payload, using inline data');
-      const result = await ai.models.generateContent({
-        model: body.model || 'gemini-2.5-flash',
+      const genResult = await generateContentWithFallback({
+        requestedModel: body.model || 'gemini-flash-latest',
         contents: body.contents,
         config: body.config
       });
 
-      res.status(200).json({ text: result.text, raw: result });
+      res.status(200).json({ text: genResult.result.text, raw: genResult.result, modelUsed: genResult.modelUsed });
     }
 
   } catch (err) {
     console.error('Error in proxy:', err);
     
-    // Si es error de tamaño, dar mensaje específico
     if (err.message?.includes('413') || err.message?.includes('too large') || err.message?.includes('PAYLOAD')) {
       res.status(413).json({ 
         error: 'Payload too large even with Files API', 

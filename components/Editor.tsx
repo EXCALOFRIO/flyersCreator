@@ -110,7 +110,7 @@ const Editor: React.FC<{ logos: Logo[]; initialDayBoxes: DayBoxData[]; initialSt
 
       // Usar formato de proxy como en TestResolver
       const payload = {
-        model: 'gemini-2.5-flash',
+        model: 'gemini-flash-latest',
         contents: [
           {
             parts: [

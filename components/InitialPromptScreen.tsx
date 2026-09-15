@@ -170,7 +170,7 @@ const InitialPromptScreen: React.FC<InitialPromptScreenProps> = ({ allLogoNames,
         }
 
         const payload = {
-            model: "gemini-2.5-flash",
+            model: "gemini-flash-latest",
             contents: { parts: promptParts },
             config: {
                 systemInstruction: `Eres un asistente experto en diseño de flyers para discotecas. Tu tarea es analizar la petición del usuario (que puede incluir texto y una imagen de referencia) y determinar qué logos de discotecas deben aparecer para los días ${daysListText}. Debes usar ÚNICAMENTE los nombres de archivo de la lista proporcionada. Tu respuesta DEBE ser un objeto JSON con las claves: ${dayKeys.map(k => `'${k}'`).join(', ')}. El valor de cada clave debe ser un array de strings, donde cada string es un nombre de archivo de logo exacto de la lista de logos disponibles.`,
