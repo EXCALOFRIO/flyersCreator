@@ -2,7 +2,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
-import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai';
+import { createUserContent, createPartFromUri } from '@google/genai';
+import { generateContentWithFallback, uploadFileWithFallback, getGeminiApiKeys } from './_geminiHelper.js';
 
 const INLINE_TOTAL_LIMIT = 4 * 1024 * 1024; // 4MB limit for Vercel serverless
 const INLINE_FILE_THRESHOLD = 2 * 1024 * 1024; // 2MB threshold to force upload
@@ -41,15 +42,14 @@ export default async function (req, res) {
     return;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  const apiKeys = getGeminiApiKeys();
+  if (apiKeys.length === 0) {
     res.status(500).json({ error: 'Server configuration error: GEMINI_API_KEY not set' });
     return;
   }
 
   try {
     const body = req.body || {};
-    const ai = new GoogleGenAI({ apiKey });
 
     const image = body.image;
     if (!image) {
@@ -59,7 +59,6 @@ export default async function (req, res) {
 
     const promptText = body.prompt || `Analiza esta imagen y sugiere 3 paletas de colores distintas y visualmente armoniosas. Cada paleta es para elementos de UI sobre la imagen. Para cada paleta, proporciona un color 'primary' y un color 'accent' vibrante. Crucialmente, el color 'primary' DEBE ser un color claro, tipo pastel (por ejemplo, amarillo claro, cian pálido o un lavanda suave), pero por favor evita usar blanco puro (#FFFFFF) para las tres paletas para asegurar variedad. Debe tener un ratio de contraste muy alto contra la imagen general para asegurar que los elementos de texto como los nombres de los días sean fácilmente legibles y accesibles. El color 'accent' debe ser vibrante y complementario para efectos especiales. Devuelve un único objeto JSON con una clave 'palettes' que es un array de estos 3 objetos de paleta. Cada objeto debe tener las claves: 'primary' y 'accent', con valores de código de color hexadecimal en formato string.`;
 
-    // Build parts: try inline if safe, otherwise upload
     const parts = [];
     const mime = image.mimeType || 'image/png';
 
@@ -68,8 +67,7 @@ export default async function (req, res) {
       const bytes = Buffer.from(rawB64, 'base64').length;
       const textBytes = Buffer.byteLength(promptText, 'utf8');
 
-      // Validar tamaño total antes de procesar
-      if (bytes + textBytes > 5 * 1024 * 1024) { // 5MB total limit
+      if (bytes + textBytes > 5 * 1024 * 1024) {
         res.status(413).json({ error: 'Image too large. Please compress or resize the image.' });
         return;
       }
@@ -80,7 +78,7 @@ export default async function (req, res) {
         const ext = mimeToExt(mime);
         const tmpPath = await writeBase64ToTempFile(rawB64, ext);
         try {
-          const uploaded = await ai.files.upload({ file: tmpPath, config: { mimeType: mime } });
+          const { uploaded } = await uploadFileWithFallback({ filePath: tmpPath, mimeType: mime });
           parts.push(createPartFromUri(uploaded.uri, uploaded.mimeType));
         } finally {
           try { await fs.promises.unlink(tmpPath); } catch (e) { }
@@ -93,7 +91,7 @@ export default async function (req, res) {
         const buf = await fs.promises.readFile(image.filePath);
         parts.push({ inlineData: { mimeType: mime, data: buf.toString('base64') } });
       } else {
-        const uploaded = await ai.files.upload({ file: image.filePath, config: { mimeType: mime } });
+        const { uploaded } = await uploadFileWithFallback({ filePath: image.filePath, mimeType: mime });
         parts.push(createPartFromUri(uploaded.uri, uploaded.mimeType));
       }
     } else if (image.url) {
@@ -108,7 +106,7 @@ export default async function (req, res) {
         const tmpPath = tempFilePath(ext);
         await fs.promises.writeFile(tmpPath, buf);
         try {
-          const uploaded = await ai.files.upload({ file: tmpPath, config: { mimeType: image.mimeType || resp.headers.get('content-type') || mime } });
+          const { uploaded } = await uploadFileWithFallback({ filePath: tmpPath, mimeType: image.mimeType || resp.headers.get('content-type') || mime });
           parts.push(createPartFromUri(uploaded.uri, uploaded.mimeType));
         } finally {
           try { await fs.promises.unlink(tmpPath); } catch (e) { }
@@ -119,29 +117,29 @@ export default async function (req, res) {
       return;
     }
 
-    // Add prompt after image part
     parts.push({ text: promptText });
 
-    const request = {
-      model: body.model || 'gemini-2.5-flash',
-      contents: createUserContent ? createUserContent(parts) : parts,
-      config: body.config || {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'object',
-          properties: {
-            palettes: {
-              type: 'array',
-              items: { type: 'object', properties: { primary: { type: 'string' }, accent: { type: 'string' } }, required: ['primary', 'accent'] }
-            }
-          },
-          required: ['palettes']
-        }
+    const defaultConfig = {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'object',
+        properties: {
+          palettes: {
+            type: 'array',
+            items: { type: 'object', properties: { primary: { type: 'string' }, accent: { type: 'string' } }, required: ['primary', 'accent'] }
+          }
+        },
+        required: ['palettes']
       }
     };
 
-    const result = await ai.models.generateContent(request);
-    res.status(200).json({ text: result.text, raw: result });
+    const genResult = await generateContentWithFallback({
+      requestedModel: body.model || 'gemini-flash-latest',
+      contents: createUserContent ? createUserContent(parts) : parts,
+      config: body.config || defaultConfig,
+    });
+
+    res.status(200).json({ text: genResult.result.text, raw: genResult.result, modelUsed: genResult.modelUsed });
 
   } catch (err) {
     console.error('Error in /api/palette:', err);
